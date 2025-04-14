@@ -110,6 +110,7 @@ class ComponentUsageProvider {
 // Component Rename Provider (Cross-file renaming)
 // ====================================================
 class ComponentRenameProvider {
+    // eslint-disable-next-line no-unused-vars
     async provideRenameEdits(document, position, newName, token) {
         let oldName;
         let componentsMapPath;
@@ -157,7 +158,7 @@ class ComponentRenameProvider {
         const componentsMapUri = vscode.Uri.file(componentsMapPath);
         const componentsMapDir = path.dirname(componentsMapPath);
 
-        // 1. Update componentsMap.js
+        // 1. Update componentsMap.js (fixed section)
         if (isJSFile) {
             // Rename in JS file directly
             const range = document.getWordRangeAtPosition(position, /([A-Za-z0-9_]+)/);
@@ -170,14 +171,20 @@ class ComponentRenameProvider {
             const entry = componentsMap.get(oldName);
             if (!entry) return null;
 
+            // Read the actual componentsMap.js content
             const mapText = fs.readFileSync(componentsMapPath, 'utf8');
             const placeholderRegex = new RegExp(`placeholder:\\s*'<!--\\s*${oldName}\\s*-->'`);
             const match = placeholderRegex.exec(mapText);
+            
             if (match) {
-                const start = mapText.indexOf(match[0]) + match[0].indexOf(oldName);
+                const start = match.index + match[0].indexOf(oldName);
                 const end = start + oldName.length;
-                const startPos = document.positionAt(start);
-                const endPos = document.positionAt(end);
+                
+                // Get correct positions from componentsMap.js document
+                const mapDoc = await vscode.workspace.openTextDocument(componentsMapUri);
+                const startPos = mapDoc.positionAt(start);
+                const endPos = mapDoc.positionAt(end);
+                
                 edit.replace(componentsMapUri, new vscode.Range(startPos, endPos), newName);
             }
         }
