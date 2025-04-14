@@ -2,6 +2,9 @@ const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
 
+// ====================================================
+// Original Component Definition Provider (HTML -> Components)
+// ====================================================
 class ComponentDefinitionProvider {
     provideDefinition(document, position) {
         const line = document.lineAt(position).text;
@@ -61,6 +64,43 @@ class ComponentDefinitionProvider {
     }
 }
 
+// ====================================================
+// New Component Usage Provider (ComponentsMap -> HTML usages)
+// ====================================================
+class ComponentUsageProvider {
+    async provideDefinition(document, position) {
+        // Only activate for _componentsMap.js
+        if (path.basename(document.uri.fsPath) !== '_componentsMap.js') return null;
+
+        // Detect placeholder line
+        const line = document.lineAt(position).text;
+        const placeholderMatch = line.match(/placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->/);
+        if (!placeholderMatch) return null;
+        const placeholderName = placeholderMatch[1];
+
+        // Find all HTML files containing the placeholder
+        const htmlFiles = await vscode.workspace.findFiles('**/*.html', '**/node_modules/**');
+        const locations = [];
+
+        for (const uri of htmlFiles) {
+            const doc = await vscode.workspace.openTextDocument(uri);
+            const text = doc.getText();
+            const regex = new RegExp(`<!--\\s*${placeholderName}\\s*-->`, 'g');
+            
+            let match;
+            while ((match = regex.exec(text)) !== null) {
+                const position = doc.positionAt(match.index);
+                locations.push(new vscode.Location(uri, position));
+            }
+        }
+
+        return locations;
+    }
+}
+
+// ====================================================
+// Shared Utility Functions
+// ====================================================
 function findComponentsMapPath(currentFileUri) {
     const currentPath = currentFileUri.fsPath;
     let currentDir = path.dirname(currentPath);
@@ -72,7 +112,7 @@ function findComponentsMapPath(currentFileUri) {
         const candidate = path.join(currentDir, '_componentsMap.js');
         if (fs.existsSync(candidate)) return candidate;
         currentDir = path.dirname(currentDir);
-        if (currentDir === path.dirname(currentDir)) break; // Prevent loop
+        if (currentDir === path.dirname(currentDir)) break;
     }
     return null;
 }
@@ -117,9 +157,13 @@ function findPlaceholderPositionInComponentsMap(componentsMapPath, placeholderNa
     return null;
 }
 
+// ====================================================
+// Activation
+// ====================================================
 function activate(context) {
     context.subscriptions.push(
-        vscode.languages.registerDefinitionProvider('html', new ComponentDefinitionProvider())
+        vscode.languages.registerDefinitionProvider('html', new ComponentDefinitionProvider()),
+        vscode.languages.registerDefinitionProvider('javascript', new ComponentUsageProvider())
     );
 }
 
