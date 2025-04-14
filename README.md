@@ -8,7 +8,7 @@
 1. Download the [`stoner-framework-integration-0.1.0.vsix` file in the releases section](https://github.com/thothinnovations/stoner-framework-integration/releases/tag/latest)
 <br>
 
-2. Open a **VS Code** terminal where you downloaded it and install it with:
+2. Open a **VS Code** terminal inside the folder where you downloaded the file and install it with:
 ```
 code --install-extension stoner-framework-integration-0.1.0.vsix
 ```
