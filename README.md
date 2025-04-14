@@ -1,7 +1,45 @@
-## (Work in Progress)
+## Work in Progress
 
-#### *A VS Code extension which provides advanced navigation and refactoring tools for Stoner Framework projects*
+#### A VS Code extension which provides advanced navigation and refactoring tools for Stoner Framework projects
 
+______________________________________
+<br>
+
+## Features:
+
+- 🧩 **Component Navigation**  
+  Ctrl+Click any component placeholder (e.g. `<!-- thankYouPage -->`) to:
+  - Jump to component implementation file
+  - Open linked JSON data file (when available)
+  - Navigate to mapping definition in `_componentsMap.js`
+<br>
+
+- 🔄 **Cross-file Usage Tracking**  
+  Find all HTML usages of a component directly from `_componentsMap.js` with:
+  - Ctrl+Click on placeholder definitions shows all HTML references
+  - Scope limited to project directory containing components map
+<br>
+
+- 🛡️ **Safe Refactoring**  
+  Rename components with F2 to automatically:
+  - Update all HTML occurrences
+  - Synchronize `_componentsMap.js` definitions
+  - Validate naming conventions (letters/numbers/underscores only)
+<br>
+
+- 🤖 **Smart Context Handling**  
+  - Auto-detects project structure boundaries
+  - Omits data file navigation for `_empty.json` mappings
+  - Preserves relative paths when building output
+<br>
+
+- 🚀 **Workspace Optimization**  
+  - Fast component resolution through cached mappings
+  - Async processing for large projects
+  - Regex-based pattern matching for reliability
+<br><br>
+
+______________________________________
 
 ## How to install it:
 
