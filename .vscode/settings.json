@@ -1,0 +1,5 @@
+{
+    "editor.editor.gotoLocation.multiple": "peek",
+    "editor.gotoLocation.multiple": "peek",
+    "editor.gotoLocation.alternativeDefinitionCommand": "editor.action.goToReferences"
+}
