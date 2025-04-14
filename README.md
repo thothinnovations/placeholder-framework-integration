@@ -7,7 +7,7 @@ ______________________________________
 # Features:
 
 - 🧩 **Component Navigation**  
-  Ctrl+Click any component placeholder (e.g. `<!-- thankYouPage -->`) to:
+  Ctrl+Click any component placeholder (e.g. `<!-- productsSection -->`) to:
   - Jump to component implementation file
   - Open linked JSON data file (when available)
   - Navigate to mapping definition in `_componentsMap.js`
