@@ -1,6 +1,6 @@
 ## Work in Progress
 
-#### A VS Code extension which provides advanced navigation and refactoring tools for Stoner Framework projects
+#### A VS Code extension which provides advanced navigation and refactoring tools for `stoner-framework` projects
 
 ______________________________________
 
