@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 
 // ====================================================
-// Original Component Definition Provider (HTML -> Components)
+// Component Definition Provider (HTML -> Components)
 // ====================================================
 class ComponentDefinitionProvider {
     provideDefinition(document, position) {
@@ -65,7 +65,7 @@ class ComponentDefinitionProvider {
 }
 
 // ====================================================
-// New Component Usage Provider (ComponentsMap -> HTML usages)
+// Component Usage Provider (ComponentsMap -> HTML usages)
 // ====================================================
 class ComponentUsageProvider {
     async provideDefinition(document, position) {
@@ -78,8 +78,16 @@ class ComponentUsageProvider {
         if (!placeholderMatch) return null;
         const placeholderName = placeholderMatch[1];
 
-        // Find all HTML files containing the placeholder
-        const htmlFiles = await vscode.workspace.findFiles('**/*.html', '**/node_modules/**');
+        // Get the directory containing _componentsMap.js
+        const componentsMapDir = path.dirname(document.uri.fsPath);
+        
+        // Create search pattern relative to componentsMap directory
+        const relativePattern = new vscode.RelativePattern(
+            componentsMapDir,
+            '**/*.html'
+        );
+
+        const htmlFiles = await vscode.workspace.findFiles(relativePattern, '**/node_modules/**');
         const locations = [];
 
         for (const uri of htmlFiles) {
@@ -94,7 +102,7 @@ class ComponentUsageProvider {
             }
         }
 
-        return locations;
+        return locations.length > 0 ? locations : null;
     }
 }
 
