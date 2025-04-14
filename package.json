@@ -6,7 +6,7 @@
   "publisher": "Thoth Inovacoes LTDA",
   "repository": {
     "type": "git",
-    "url": "https://github.com/MachWheel/stoner-framework-integration.git"
+    "url": "https://github.com/thothinnovations/stoner-framework-integration.git"
   },
   "engines": {
     "vscode": "^1.99.0"
