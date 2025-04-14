@@ -107,6 +107,105 @@ class ComponentUsageProvider {
 }
 
 // ====================================================
+// Component Rename Provider (Cross-file renaming)
+// ====================================================
+class ComponentRenameProvider {
+    async provideRenameEdits(document, position, newName, token) {
+        let oldName;
+        let componentsMapPath;
+        let isJSFile = false;
+
+        // Determine context
+        if (document.languageId === 'javascript' && 
+            path.basename(document.uri.fsPath) === '_componentsMap.js') {
+            // Handle rename in componentsMap.js
+            const line = document.lineAt(position).text;
+            const placeholderMatch = line.match(/placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->/);
+            if (!placeholderMatch) return null;
+            
+            const nameStart = line.indexOf(placeholderMatch[1]);
+            const nameEnd = nameStart + placeholderMatch[1].length;
+            if (position.character < nameStart || position.character > nameEnd) return null;
+            
+            oldName = placeholderMatch[1];
+            componentsMapPath = document.uri.fsPath;
+            isJSFile = true;
+        } else if (document.languageId === 'html') {
+            // Handle rename in HTML file
+            const line = document.lineAt(position).text;
+            const placeholderMatch = line.match(/<!--\s*([A-Za-z0-9_]+)\s*-->/);
+            if (!placeholderMatch) return null;
+            
+            const nameStart = line.indexOf(placeholderMatch[1]);
+            const nameEnd = nameStart + placeholderMatch[1].length;
+            if (position.character < nameStart || position.character > nameEnd) return null;
+            
+            oldName = placeholderMatch[1];
+            componentsMapPath = findComponentsMapPath(document.uri);
+            if (!componentsMapPath) return null;
+        } else {
+            return null;
+        }
+
+        // Verify new name format
+        if (!/^[A-Za-z0-9_]+$/.test(newName)) {
+            vscode.window.showErrorMessage('Invalid component name. Use only letters, numbers and underscores.');
+            return null;
+        }
+
+        const edit = new vscode.WorkspaceEdit();
+        const componentsMapUri = vscode.Uri.file(componentsMapPath);
+        const componentsMapDir = path.dirname(componentsMapPath);
+
+        // 1. Update componentsMap.js
+        if (isJSFile) {
+            // Rename in JS file directly
+            const range = document.getWordRangeAtPosition(position, /([A-Za-z0-9_]+)/);
+            if (range) {
+                edit.replace(document.uri, range, newName);
+            }
+        } else {
+            // Find and update placeholder in componentsMap.js
+            const { componentsMap } = parseComponentsMap(componentsMapPath);
+            const entry = componentsMap.get(oldName);
+            if (!entry) return null;
+
+            const mapText = fs.readFileSync(componentsMapPath, 'utf8');
+            const placeholderRegex = new RegExp(`placeholder:\\s*'<!--\\s*${oldName}\\s*-->'`);
+            const match = placeholderRegex.exec(mapText);
+            if (match) {
+                const start = mapText.indexOf(match[0]) + match[0].indexOf(oldName);
+                const end = start + oldName.length;
+                const startPos = document.positionAt(start);
+                const endPos = document.positionAt(end);
+                edit.replace(componentsMapUri, new vscode.Range(startPos, endPos), newName);
+            }
+        }
+
+        // 2. Update all HTML files
+        const relativePattern = new vscode.RelativePattern(componentsMapDir, '**/*.html');
+        const htmlFiles = await vscode.workspace.findFiles(relativePattern, '**/node_modules/**');
+        
+        for (const uri of htmlFiles) {
+            const doc = await vscode.workspace.openTextDocument(uri);
+            const text = doc.getText();
+            const regex = new RegExp(`<!--\\s*${oldName}\\s*-->`, 'g');
+            
+            let match;
+            while ((match = regex.exec(text)) !== null) {
+                const start = match.index + match[0].indexOf(oldName);
+                const end = start + oldName.length;
+                const startPos = doc.positionAt(start);
+                const endPos = doc.positionAt(end);
+                edit.replace(uri, new vscode.Range(startPos, endPos), newName);
+            }
+        }
+
+        return edit;
+    }
+}
+
+// ====================================================
 // Shared Utility Functions
 // ====================================================
 function findComponentsMapPath(currentFileUri) {
@@ -171,7 +270,9 @@ function findPlaceholderPositionInComponentsMap(componentsMapPath, placeholderNa
 function activate(context) {
     context.subscriptions.push(
         vscode.languages.registerDefinitionProvider('html', new ComponentDefinitionProvider()),
-        vscode.languages.registerDefinitionProvider('javascript', new ComponentUsageProvider())
+        vscode.languages.registerDefinitionProvider('javascript', new ComponentUsageProvider()),
+        vscode.languages.registerRenameProvider('html', new ComponentRenameProvider()),
+        vscode.languages.registerRenameProvider('javascript', new ComponentRenameProvider())
     );
 }
 
