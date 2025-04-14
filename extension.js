@@ -1,141 +1,126 @@
 const vscode = require('vscode');
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
 
-/**
- * Activates the extension.
- * Registers a definition provider for HTML files that detects HTML comment placeholders
- * (e.g., <!-- thankYouPage -->) and provides definition links for navigating to:
- *   - The mapped component file
- *   - The mapped component’s data file (if applicable)
- *   - The mapping entry in _componentsMap.js
- */
-function activate(context) {
-  // The definition provider will be used for files with the "html" language.
-  const provider = {
+class ComponentDefinitionProvider {
     provideDefinition(document, position) {
-      const lineText = document.lineAt(position.line).text;
-      // This regex will match HTML comments of the form: <!-- placeholderName -->
-      const regex = /<!--\s*([A-Za-z0-9_]+)\s*-->/g;
-      let match;
-      while ((match = regex.exec(lineText)) !== null) {
-        const fullMatch = match[0];
-        const placeholder = match[1];
-        const matchStart = match.index;
-        const matchEnd = match.index + fullMatch.length;
-        // Only run if the cursor is within the match
-        if (position.character >= matchStart && position.character <= matchEnd) {
-          // Get the workspace root (assumes a single-root workspace)
-          const workspaceFolders = vscode.workspace.workspaceFolders;
-          if (!workspaceFolders || workspaceFolders.length === 0) {
+        const line = document.lineAt(position).text;
+        const placeholderMatch = line.match(/<!--\s*([A-Za-z0-9_]+)\s*-->/);
+        if (!placeholderMatch) return null;
+        const placeholderName = placeholderMatch[1];
+
+        const componentsMapPath = findComponentsMapPath(document.uri);
+        if (!componentsMapPath) {
+            vscode.window.showErrorMessage('_componentsMap.js not found.');
             return null;
-          }
-          const workspaceRoot = workspaceFolders[0].uri.fsPath;
-          const compMapPath = path.join(workspaceRoot, '_componentsMap.js');
-          if (!fs.existsSync(compMapPath)) {
-            return null;
-          }
-          // Clear the require cache to pick up fresh changes in _componentsMap.js
-          delete require.cache[require.resolve(compMapPath)];
-          let compMap;
-          try {
-            compMap = require(compMapPath);
-          } catch (err) {
-            vscode.window.showErrorMessage('Error loading _componentsMap.js: ' + err);
-            return null;
-          }
-          const config = compMap[placeholder];
-          if (!config) {
-            // No mapping found for this placeholder.
-            return null;
-          }
-
-          // Read the entire _componentsMap.js file content
-          let compMapContent;
-          try {
-            compMapContent = fs.readFileSync(compMapPath, 'utf8');
-          } catch (err) {
-            vscode.window.showErrorMessage('Error reading _componentsMap.js: ' + err);
-            return null;
-          }
-
-          // Extract the component file path by finding the require statement for the component.
-          // This regex finds a pattern like:
-          //   thankYouPage: { ... component: require(`./_components/thankYouPage.js`),
-          // or with single/double quotes.
-          const compRegex = new RegExp(
-            placeholder + '\\s*:\\s*{[\\s\\S]*?require\\(([`\'"])(.*?)\\1\\)',
-            'm'
-          );
-          const compMatch = compMapContent.match(compRegex);
-          if (!compMatch || compMatch.length < 3) {
-            vscode.window.showErrorMessage('Could not resolve component file for placeholder: ' + placeholder);
-            return null;
-          }
-          const componentRelativePath = compMatch[2];
-          const componentFilePath = path.join(path.dirname(compMapPath), componentRelativePath);
-
-          // Compute the data file absolute path.
-          const dataFileRelativePath = config.dataFile;
-          const dataFilePath = path.join(path.dirname(compMapPath), dataFileRelativePath);
-
-          // Find the line in _componentsMap.js that contains the mapping entry.
-          const compMapLines = compMapContent.split(/\r?\n/);
-          let mappingLine = 0;
-          for (let i = 0; i < compMapLines.length; i++) {
-            if (compMapLines[i].includes(`placeholder: '<!-- ${placeholder} -->'`)) {
-              mappingLine = i;
-              break;
-            }
-          }
-
-          // Build the definition links list.
-          // Each object here will become an option in the definition (peek) view.
-          const locations = [];
-
-          // Option 1: Go to component file.
-          locations.push({
-            targetUri: vscode.Uri.file(componentFilePath),
-            targetRange: new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0)),
-            tooltip: "Go to component file"
-          });
-
-          // Option 2: Go to component's data.
-          // Skip this option if the data file is the _empty.json file.
-          if (!dataFilePath.endsWith('_empty.json')) {
-            locations.push({
-              targetUri: vscode.Uri.file(dataFilePath),
-              targetRange: new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0)),
-              tooltip: "Go to component's data"
-            });
-          }
-
-          // Option 3: Go to component mapping.
-          locations.push({
-            targetUri: vscode.Uri.file(compMapPath),
-            targetRange: new vscode.Range(new vscode.Position(mappingLine, 0), new vscode.Position(mappingLine, 0)),
-            tooltip: "Go to component mapping"
-          });
-
-          return locations;
         }
-      }
-      return null;
-    }
-  };
 
-  // Register the definition provider for HTML files.
-  context.subscriptions.push(
-    vscode.languages.registerDefinitionProvider({ scheme: 'file', language: 'html' }, provider)
-  );
+        try {
+            const { componentsMap, noDataValue } = parseComponentsMap(componentsMapPath);
+            const componentInfo = componentsMap.get(placeholderName);
+            if (!componentInfo) {
+                vscode.window.showInformationMessage(`No component found for placeholder '${placeholderName}'.`);
+                return null;
+            }
+
+            const locations = [];
+            const componentsMapDir = path.dirname(componentsMapPath);
+
+            // Component File Location
+            const componentFullPath = path.resolve(componentsMapDir, componentInfo.componentPath);
+            if (fs.existsSync(componentFullPath)) {
+                locations.push(new vscode.Location(
+                    vscode.Uri.file(componentFullPath),
+                    new vscode.Position(0, 0)
+                ));
+            }
+
+            // Data File Location (if not _empty.json)
+            const dataFileFullPath = path.resolve(componentsMapDir, componentInfo.dataFile);
+            if (componentInfo.dataFile !== noDataValue && fs.existsSync(dataFileFullPath)) {
+                locations.push(new vscode.Location(
+                    vscode.Uri.file(dataFileFullPath),
+                    new vscode.Position(0, 0)
+                ));
+            }
+
+            // Mapping Location in componentsMap.js
+            const mappingPos = findPlaceholderPositionInComponentsMap(componentsMapPath, placeholderName);
+            if (mappingPos) {
+                locations.push(new vscode.Location(
+                    vscode.Uri.file(componentsMapPath),
+                    mappingPos
+                ));
+            }
+
+            return locations;
+        } catch (error) {
+            vscode.window.showErrorMessage(`Error parsing _componentsMap.js: ${error}`);
+            return null;
+        }
+    }
 }
 
-/**
- * Deactivate the extension.
- */
-function deactivate() {}
+function findComponentsMapPath(currentFileUri) {
+    const currentPath = currentFileUri.fsPath;
+    let currentDir = path.dirname(currentPath);
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(currentFileUri);
+    if (!workspaceFolder) return null;
+    const root = workspaceFolder.uri.fsPath;
 
-module.exports = {
-  activate,
-  deactivate
-};
+    while (currentDir.startsWith(root)) {
+        const candidate = path.join(currentDir, '_componentsMap.js');
+        if (fs.existsSync(candidate)) return candidate;
+        currentDir = path.dirname(currentDir);
+        if (currentDir === path.dirname(currentDir)) break; // Prevent loop
+    }
+    return null;
+}
+
+function parseComponentsMap(componentsMapPath) {
+    const text = fs.readFileSync(componentsMapPath, 'utf8');
+
+    // Extract dataDir and noData
+    const dataDir = (text.match(/const dataDir\s*=\s*`([^`]+)`/) || [])[1] || './_components/data';
+    const noData = (text.match(/const noData\s*=\s*`\$\{dataDir\}\/([^`]+)`/) || [])[1];
+    const noDataValue = path.join(dataDir, noData || '_empty.json');
+
+    // Extract components
+    const componentRegex = /(\w+):\s*{\s*placeholder:\s*'<!--\s*(\w+)\s*-->',\s*dataFile:\s*(.*?),\s*component:\s*require\(`(.*?)`\)/gs;
+    const entries = [];
+    let match;
+
+    while ((match = componentRegex.exec(text)) !== null) {
+        const placeholderName = match[2];
+        let dataFileExpr = match[3].trim();
+        const componentPath = match[4];
+
+        // Resolve dataFile
+        let dataFile = dataFileExpr === 'noData' ? noDataValue
+            : dataFileExpr.replace(/\$\{dataDir\}/g, dataDir).replace(/^`|`$/g, '');
+
+        entries.push({ placeholderName, componentPath, dataFile });
+    }
+
+    const componentsMap = new Map(entries.map(e => [e.placeholderName, e]));
+    return { componentsMap, noDataValue };
+}
+
+function findPlaceholderPositionInComponentsMap(componentsMapPath, placeholderName) {
+    const text = fs.readFileSync(componentsMapPath, 'utf8');
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes(`placeholder: '<!-- ${placeholderName} -->'`)) {
+            return new vscode.Position(i, lines[i].indexOf(`placeholder: '<!-- ${placeholderName} -->'`));
+        }
+    }
+    return null;
+}
+
+function activate(context) {
+    context.subscriptions.push(
+        vscode.languages.registerDefinitionProvider('html', new ComponentDefinitionProvider())
+    );
+}
+
+module.exports = { activate };
