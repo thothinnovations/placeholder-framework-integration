@@ -3,9 +3,8 @@
 #### A VS Code extension which provides advanced navigation and refactoring tools for Stoner Framework projects
 
 ______________________________________
-<br>
 
-## Features:
+# Features:
 
 - 🧩 **Component Navigation**  
   Ctrl+Click any component placeholder (e.g. `<!-- thankYouPage -->`) to:
@@ -37,11 +36,11 @@ ______________________________________
   - Fast component resolution through cached mappings
   - Async processing for large projects
   - Regex-based pattern matching for reliability
-<br><br>
+<br>
 
 ______________________________________
 
-## How to install it:
+# How to install it:
 
 1. Download the [`stoner-framework-integration-0.1.0.vsix` file in the releases section](https://github.com/thothinnovations/stoner-framework-integration/releases/tag/latest)
 <br>
