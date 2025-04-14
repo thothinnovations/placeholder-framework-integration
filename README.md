@@ -23,7 +23,6 @@ ______________________________________
   Rename components with F2 to automatically:
   - Update all HTML occurrences
   - Synchronize `_componentsMap.js` definitions
-  - Validate naming conventions (letters/numbers/underscores only)
 <br>
 
 - 🤖 **Smart Context Handling**  
