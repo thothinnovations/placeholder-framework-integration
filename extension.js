@@ -213,17 +213,40 @@ class ComponentRenameProvider {
 }
 
 
-// ======================================================================
-// Placeholder Usage Hints Provider
-//   • shows  "<n> usages"  above every placeholder                 (HTML)
-//   • shows  "<n> usages"  above every entry in _componentsMap.js  (JS)
-// ======================================================================
+// ========================================================================
+//  Placeholder Usage Hints Provider
+//   • shows  "<n> usages"  above every placeholder in `_pages`
+//   • shows  "<n> usages"  above every placeholder in `_componentsMap.js`
+//   • shows  "go-to"       after every  `dataFile` in `_componentsMap.js`
+// ========================================================================
 class PlaceholderUsageHintsProvider {
     constructor() {
-        this._onDidChange           = new vscode.EventEmitter();
-        this.onDidChangeCodeLenses  = this._onDidChange.event;
+        this._onDidChange          = new vscode.EventEmitter();
+        this.onDidChangeCodeLenses = this._onDidChange.event;
     }
 
+    //------------------------------------------------------------------
+    // helper – resolve  dataFile: <expr>  to an absolute path
+    //------------------------------------------------------------------
+    _resolveDataFile(expr, documentText, mapDir) {
+        // strip quotes / back‑ticks
+        expr = expr.trim();
+        const quote = expr[0];
+        if ((quote === '`' || quote === '\'' || quote === '"') && expr[expr.length - 1] === quote) {
+            expr = expr.slice(1, -1);
+        }
+
+        // fetch  dataDir  constant from the same file
+        const dataDirMatch = documentText.match(/const\s+dataDir\s*=\s*`([^`]+)`/);
+        const dataDir      = dataDirMatch ? dataDirMatch[1] : './_components/data';
+
+        // handle  ${dataDir}  template substitution
+        expr = expr.replace(/\$\{dataDir\}/g, dataDir);
+
+        return path.resolve(mapDir, expr);
+    }
+
+    //------------------------------------------------------------------
     async provideCodeLenses(document, token) {
         const isHtml = document.languageId === 'html';
         const isMap  = document.languageId === 'javascript' &&
@@ -231,79 +254,98 @@ class PlaceholderUsageHintsProvider {
 
         if (!isHtml && !isMap) { return []; }
 
-        // ── locate _componentsMap.js so we know where to search for *.html ──
-        const componentsMapPath = isMap
-            ? document.uri.fsPath
-            : findComponentsMapPath(document.uri);
+        //--------------------------------------------------------------
+        // 1. locate _componentsMap.js   (needed for counting usages)
+        //--------------------------------------------------------------
+        const mapPath = isMap ? document.uri.fsPath : findComponentsMapPath(document.uri);
+        if (!mapPath) { return []; }
+        const mapDir  = path.dirname(mapPath);
 
-        if (!componentsMapPath) { return []; }
-
-        const componentsDir = path.dirname(componentsMapPath);
-
-        // ── gather ALL html files once, then cache their texts ─────────────
+        //--------------------------------------------------------------
+        // 2. gather every *.html   (once)
+        //--------------------------------------------------------------
         const htmlFiles = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(componentsDir, '**/*.html'),
+            new vscode.RelativePattern(mapDir, '**/*.html'),
             '**/node_modules/**');
-        const htmlDocs  = await Promise.all(
-            htmlFiles.map(uri => vscode.workspace.openTextDocument(uri)));
+        const htmlDocs  = await Promise.all(htmlFiles.map(uri => vscode.workspace.openTextDocument(uri)));
 
-        // ── cache for per‑placeholder counts and reference locations ───────
-        const usageCache = new Map();
-        const codeLenses = [];
+        //--------------------------------------------------------------
+        // 3. iterate through the current document
+        //--------------------------------------------------------------
+        const usageCache  = new Map();
+        const codeLenses  = [];
+        const text        = document.getText();
 
-        // different placeholder regex depending on the file we are in
-        const placeholderRegex = isHtml
+        //------------------------------------------------------------------
+        // 3. a)  "<n> usages"  (HTML placeholder  *or*  map placeholder)
+        //------------------------------------------------------------------
+        const placeholderRe = isHtml
             ? /<!--\s*([A-Za-z0-9_]+)\s*-->/g
             : /placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->'/g;
 
-        const docText = document.getText();
-        let match;
-        while ((match = placeholderRegex.exec(docText)) !== null) {
-            const placeholder = match[1];
+        let m;
+        while ((m = placeholderRe.exec(text)) !== null) {
+            const name      = m[1];
+            const pos       = document.positionAt(m.index);
+            const lensRange = new vscode.Range(pos.line, 0, pos.line, 0);
 
-            //---------------------------------------------
-            // 1. where should the lens be rendered?
-            //---------------------------------------------
-            const tokenPos   = document.positionAt(match.index);
-            const lensRange  = new vscode.Range(tokenPos.line, 0, tokenPos.line, 0);
-
-            //---------------------------------------------
-            // 2. lazy‑fill cache (count + locations)
-            //---------------------------------------------
-            let entry = usageCache.get(placeholder);
+            // cache counts so we only scan html once per placeholder
+            let entry = usageCache.get(name);
             if (!entry) {
                 entry = { count: 0, locations: [] };
-                const htmlRe = new RegExp(`<!--\\s*${placeholder}\\s*-->`, 'g');
+                const htmlRe = new RegExp(`<!--\\s*${name}\\s*-->`, 'g');
 
-                for (const htmlDoc of htmlDocs) {
-                    const text = htmlDoc.getText();
-                    let m;
-                    while ((m = htmlRe.exec(text)) !== null) {
+                for (const hDoc of htmlDocs) {
+                    const hTxt = hDoc.getText();
+                    let hm;
+                    while ((hm = htmlRe.exec(hTxt)) !== null) {
                         entry.count += 1;
-                        const pos = htmlDoc.positionAt(m.index);
-                        entry.locations.push(new vscode.Location(htmlDoc.uri, pos));
+                        const hPos = hDoc.positionAt(hm.index);
+                        entry.locations.push(new vscode.Location(hDoc.uri, hPos));
                     }
                 }
-                usageCache.set(placeholder, entry);
+                usageCache.set(name, entry);
             }
 
-            //---------------------------------------------
-            // 3. build the CodeLens
-            //---------------------------------------------
             codeLenses.push(new vscode.CodeLens(
                 lensRange,
                 {
                     title: `${entry.count} usages`,
                     tooltip: 'Show all usages of this placeholder',
                     command: 'editor.action.showReferences',
-                    arguments: [
-                        document.uri,   // where the user clicked
-                        tokenPos,       // position to anchor results UI
-                        entry.locations // list built above
-                    ]
+                    arguments: [ document.uri, pos, entry.locations ]
                 }
             ));
         }
+
+        //------------------------------------------------------------------
+        // 3. b)  "go‑to"  on   dataFile: <expr>,
+        //------------------------------------------------------------------
+        if (isMap) {
+            const dataFileRe = /dataFile:\s*([^,]+),/g;     // capture raw expression
+            let df;
+            while ((df = dataFileRe.exec(text)) !== null) {
+                const rawExpr = df[1].trim();
+                if (rawExpr === 'noData') { continue; }     // skip noData entries
+
+                const absPath = this._resolveDataFile(rawExpr, text, mapDir);
+                if (!fs.existsSync(absPath)) { continue; }
+
+                const dfPos     = document.positionAt(df.index);
+                const lensRange = new vscode.Range(dfPos.line, 0, dfPos.line, 0);
+
+                codeLenses.push(new vscode.CodeLens(
+                    lensRange,
+                    {
+                        title: 'open:',
+                        tooltip: '',
+                        command: 'vscode.open',
+                        arguments: [ vscode.Uri.file(absPath) ]
+                    }
+                ));
+            }
+        }
+
         return codeLenses;
     }
 }
