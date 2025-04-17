@@ -239,17 +239,17 @@ function parseComponentsMap(componentsMapPath) {
     const noData = (text.match(/const noData\s*=\s*`\$\{dataDir\}\/([^`]+)`/) || [])[1];
     const noDataValue = path.join(dataDir, noData || '_empty.json');
 
-    // Extract components
-    const componentRegex = /(\w+):\s*{\s*placeholder:\s*'<!--\s*(\w+)\s*-->',\s*dataFile:\s*(.*?),\s*component:\s*require\(`(.*?)`\)/gs;
+    // Regex to match components in the array structure
+    const componentRegex = /{\s*placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->',\s*dataFile:\s*(.*?),\s*component:\s*require\(`(.*?)`\)/gs;
     const entries = [];
     let match;
 
     while ((match = componentRegex.exec(text)) !== null) {
-        const placeholderName = match[2];
-        let dataFileExpr = match[3].trim();
-        const componentPath = match[4];
+        const placeholderName = match[1];
+        let dataFileExpr = match[2].trim();
+        const componentPath = match[3];
 
-        // Resolve dataFile
+        // Resolve dataFile (handle template literals and variables)
         let dataFile = dataFileExpr === 'noData' ? noDataValue
             : dataFileExpr.replace(/\$\{dataDir\}/g, dataDir).replace(/^`|`$/g, '');
 
