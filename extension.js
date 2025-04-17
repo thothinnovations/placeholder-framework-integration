@@ -479,6 +479,31 @@ function offsetToPosition(text, offset) {
 }
 
 
+// ----------------------------------------------------
+//  Decoration:  highlight  <!-- placeholderName -->
+//  Scan the given editor and colour every <!-- myPlaceholder --> comment. */
+// ----------------------------------------------------
+const placeholderDecoration = vscode.window.createTextEditorDecorationType({
+    color: new vscode.ThemeColor('componentsPlaceholder.foreground')
+});
+
+function updatePlaceholderDecorations(editor) {
+    if (!editor || editor.document.languageId !== 'html') { return; }
+
+    const ranges = [];
+    const regex  = /<!--\s*[A-Za-z0-9_]+\s*-->/g;
+    const text   = editor.document.getText();
+    let m;
+    while ((m = regex.exec(text)) !== null) {
+        const start = editor.document.positionAt(m.index);
+        const end   = editor.document.positionAt(m.index + m[0].length);
+        ranges.push(new vscode.Range(start, end));
+    }
+    editor.setDecorations(placeholderDecoration, ranges);
+}
+
+
+
 // ====================================================
 // Activation
 // ====================================================
@@ -499,6 +524,18 @@ function activate(context) {
             { language: 'javascript', scheme: 'file', pattern: '**/_componentsMap.js' },
             new PlaceholderUsageHintsProvider()
         )
+    );
+
+    updatePlaceholderDecorations(vscode.window.activeTextEditor);
+    context.subscriptions.push(  // re‑run when the active editor changes:
+        vscode.window.onDidChangeActiveTextEditor(updatePlaceholderDecorations),
+        // re‑run when an html document changes:
+        vscode.workspace.onDidChangeTextDocument(e => {
+            const ed = vscode.window.activeTextEditor;
+            if (ed && e.document === ed.document && ed.document.languageId === 'html') {
+                updatePlaceholderDecorations(ed);
+            }
+        })
     );
 }
 

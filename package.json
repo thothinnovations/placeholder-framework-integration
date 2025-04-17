@@ -2,7 +2,7 @@
   "name": "stoner-framework-integration",
   "displayName": "Stoner Framework Integration",
   "description": "Advanced navigation and refactoring tools for Stoner Framework projects",
-  "version": "0.3.0",
+  "version": "0.3.3",
   "publisher": "Thoth Inovacoes LTDA",
   "repository": {
     "type": "git",
@@ -24,6 +24,17 @@
       {
         "id": "html",
         "extensions": [ ".html" ]
+      }
+    ],
+    "colors": [
+      {
+        "id": "componentsPlaceholder.foreground",
+        "description": "Foreground for <!-- placeholder --> comments in HTML files",
+        "defaults": {
+          "dark":   "#ffb454",
+          "light":  "#7330fa",
+          "highContrast": "#ffb454"
+        }
       }
     ]
   },
