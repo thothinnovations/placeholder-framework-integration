@@ -4,8 +4,6 @@ Advanced navigation, refactoring and _visual hints_ for projects that use the pl
 
 <br>
 
----
-
 ## 🛠️ Installation
 
 1. Download the latest **`.vsix`** from the [releases page](https://github.com/thothinnovations/stoner-framework-integration/releases/tag/latest).  
@@ -16,8 +14,6 @@ Advanced navigation, refactoring and _visual hints_ for projects that use the pl
 3. Reload VS Code.
 
 <br>
-
----
 
 ## ✨ What you get
 
@@ -34,14 +30,14 @@ Advanced navigation, refactoring and _visual hints_ for projects that use the pl
 
 ---
 
+<br>
+
 ## 🚀 Performance notes
 * All HTML files are scanned **once**, then cached per workspace.
 * Regex‑based search keeps things fast even in large code‑bases.
 * Decorations are updated only for the active editor, minimising redraw cost.
 
 <br>
-
----
 
 ## 🧩 Expected project structure
 ```
