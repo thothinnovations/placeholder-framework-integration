@@ -2,7 +2,7 @@
   "name": "stoner-framework-integration",
   "displayName": "Stoner Framework Integration",
   "description": "Advanced navigation and refactoring tools for Stoner Framework projects",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "Thoth Inovacoes LTDA",
   "repository": {
     "type": "git",
