@@ -212,6 +212,61 @@ class ComponentRenameProvider {
     }
 }
 
+
+// =================================================================
+// Map Usage Provider (component function -> _componentsMap Usages)
+// =================================================================
+class MapUsageProvider {
+    provideDefinition(document, position) {
+        const line = document.lineAt(position).text;
+        // Match both function exports and variable exports
+        const exportMatch = line.match(/module\.exports\s*=\s*(?:function\s+(\w+)|(\w+))/);
+        if (!exportMatch) return null;
+
+        const functionName = exportMatch[1] || exportMatch[2];
+        if (!functionName) return null;
+
+        // Check if the click is on the function/variable name
+        const functionNameIndex = line.indexOf(functionName);
+        if (position.character < functionNameIndex || position.character > functionNameIndex + functionName.length) {
+            return null;
+        }
+
+        const currentFilePath = document.uri.fsPath;
+        const componentsMapPath = findComponentsMapPath(document.uri);
+        if (!componentsMapPath) return null;
+
+        const componentsMapDir = path.dirname(componentsMapPath);
+        const { componentsMap } = parseComponentsMap(componentsMapPath);
+
+        // Find entries that reference the current component file
+        const entriesUsingCurrentFile = Array.from(componentsMap.values()).filter(entry => {
+            const resolvedPath = path.resolve(componentsMapDir, entry.componentPath);
+            return resolvedPath === currentFilePath;
+        });
+
+        if (entriesUsingCurrentFile.length === 0) return null;
+
+        // Find positions of each require statement in componentsMap.js
+        const componentsMapText = fs.readFileSync(componentsMapPath, 'utf8');
+        const locations = [];
+
+        entriesUsingCurrentFile.forEach(entry => {
+            const escapedPath = entry.componentPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const requireRegex = new RegExp(`require\\(\\\`${escapedPath}\\\`\\)`, 'g');
+            let match;
+
+            while ((match = requireRegex.exec(componentsMapText)) !== null) {
+                const pos = offsetToPosition(componentsMapText, match.index);
+                locations.push(new vscode.Location(vscode.Uri.file(componentsMapPath), pos));
+            }
+        });
+
+        return locations.length > 0 ? locations : null;
+    }
+}
+
+
 // ====================================================
 // Shared Utility Functions
 // ====================================================
@@ -271,6 +326,21 @@ function findPlaceholderPositionInComponentsMap(componentsMapPath, placeholderNa
     return null;
 }
 
+// Converts text offset to Position:
+function offsetToPosition(text, offset) {
+    let line = 0;
+    let totalChars = 0;
+    const lines = text.split('\n');
+    for (; line < lines.length; line++) {
+        const lineLength = lines[line].length + 1; // +1 for newline
+        if (totalChars + lineLength > offset) break;
+        totalChars += lineLength;
+    }
+    const character = offset - totalChars;
+    return new vscode.Position(line, character);
+}
+
+
 // ====================================================
 // Activation
 // ====================================================
@@ -278,6 +348,7 @@ function activate(context) {
     context.subscriptions.push(
         vscode.languages.registerDefinitionProvider('html', new ComponentDefinitionProvider()),
         vscode.languages.registerDefinitionProvider('javascript', new ComponentUsageProvider()),
+        vscode.languages.registerDefinitionProvider('javascript', new MapUsageProvider()),
         vscode.languages.registerRenameProvider('html', new ComponentRenameProvider()),
         vscode.languages.registerRenameProvider('javascript', new ComponentRenameProvider())
     );
