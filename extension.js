@@ -213,6 +213,102 @@ class ComponentRenameProvider {
 }
 
 
+// ======================================================================
+// Placeholder Usage Hints Provider
+//   • shows  "<n> usages"  above every placeholder                 (HTML)
+//   • shows  "<n> usages"  above every entry in _componentsMap.js  (JS)
+// ======================================================================
+class PlaceholderUsageHintsProvider {
+    constructor() {
+        this._onDidChange           = new vscode.EventEmitter();
+        this.onDidChangeCodeLenses  = this._onDidChange.event;
+    }
+
+    async provideCodeLenses(document, token) {
+        const isHtml = document.languageId === 'html';
+        const isMap  = document.languageId === 'javascript' &&
+                       path.basename(document.uri.fsPath) === '_componentsMap.js';
+
+        if (!isHtml && !isMap) { return []; }
+
+        // ── locate _componentsMap.js so we know where to search for *.html ──
+        const componentsMapPath = isMap
+            ? document.uri.fsPath
+            : findComponentsMapPath(document.uri);
+
+        if (!componentsMapPath) { return []; }
+
+        const componentsDir = path.dirname(componentsMapPath);
+
+        // ── gather ALL html files once, then cache their texts ─────────────
+        const htmlFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(componentsDir, '**/*.html'),
+            '**/node_modules/**');
+        const htmlDocs  = await Promise.all(
+            htmlFiles.map(uri => vscode.workspace.openTextDocument(uri)));
+
+        // ── cache for per‑placeholder counts and reference locations ───────
+        const usageCache = new Map();
+        const codeLenses = [];
+
+        // different placeholder regex depending on the file we are in
+        const placeholderRegex = isHtml
+            ? /<!--\s*([A-Za-z0-9_]+)\s*-->/g
+            : /placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->'/g;
+
+        const docText = document.getText();
+        let match;
+        while ((match = placeholderRegex.exec(docText)) !== null) {
+            const placeholder = match[1];
+
+            //---------------------------------------------
+            // 1. where should the lens be rendered?
+            //---------------------------------------------
+            const tokenPos   = document.positionAt(match.index);
+            const lensRange  = new vscode.Range(tokenPos.line, 0, tokenPos.line, 0);
+
+            //---------------------------------------------
+            // 2. lazy‑fill cache (count + locations)
+            //---------------------------------------------
+            let entry = usageCache.get(placeholder);
+            if (!entry) {
+                entry = { count: 0, locations: [] };
+                const htmlRe = new RegExp(`<!--\\s*${placeholder}\\s*-->`, 'g');
+
+                for (const htmlDoc of htmlDocs) {
+                    const text = htmlDoc.getText();
+                    let m;
+                    while ((m = htmlRe.exec(text)) !== null) {
+                        entry.count += 1;
+                        const pos = htmlDoc.positionAt(m.index);
+                        entry.locations.push(new vscode.Location(htmlDoc.uri, pos));
+                    }
+                }
+                usageCache.set(placeholder, entry);
+            }
+
+            //---------------------------------------------
+            // 3. build the CodeLens
+            //---------------------------------------------
+            codeLenses.push(new vscode.CodeLens(
+                lensRange,
+                {
+                    title: `${entry.count} usages`,
+                    tooltip: 'Show all usages of this placeholder',
+                    command: 'editor.action.showReferences',
+                    arguments: [
+                        document.uri,   // where the user clicked
+                        tokenPos,       // position to anchor results UI
+                        entry.locations // list built above
+                    ]
+                }
+            ));
+        }
+        return codeLenses;
+    }
+}
+
+
 // =================================================================
 // Map Usage Provider (component function -> _componentsMap Usages)
 // =================================================================
@@ -350,7 +446,17 @@ function activate(context) {
         vscode.languages.registerDefinitionProvider('javascript', new ComponentUsageProvider()),
         vscode.languages.registerDefinitionProvider('javascript', new MapUsageProvider()),
         vscode.languages.registerRenameProvider('html', new ComponentRenameProvider()),
-        vscode.languages.registerRenameProvider('javascript', new ComponentRenameProvider())
+        vscode.languages.registerRenameProvider('javascript', new ComponentRenameProvider()),
+
+        vscode.languages.registerCodeLensProvider(
+            { language: 'html', scheme: 'file' },
+            new PlaceholderUsageHintsProvider()
+        ),
+        
+        vscode.languages.registerCodeLensProvider(
+            { language: 'javascript', scheme: 'file', pattern: '**/_componentsMap.js' },
+            new PlaceholderUsageHintsProvider()
+        )
     );
 }
 
