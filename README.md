@@ -1,53 +1,62 @@
-## Work in Progress
+# Stoner‑Framework VS Code Extension  
 
-#### A VS Code extension which provides advanced navigation and refactoring tools for `stoner-framework` projects
+Advanced navigation, refactoring and _visual hints_ for projects that use the placeholders pattern.
 
-______________________________________
-
-# Features:
-
-- 🧩 **Component Navigation**  
-  Ctrl+Click any component placeholder (e.g. `<!-- productsSection -->`) to:
-  - Jump to component implementation file
-  - Open linked JSON data file (when available)
-  - Navigate to mapping definition in `_componentsMap.js`
 <br>
 
-- 🔄 **Cross-file Usage Tracking**  
-  Find all HTML usages of a component directly from `_componentsMap.js` with:
-  - Ctrl+Click on placeholder definitions shows all HTML references
-  - Scope limited to project directory containing components map
+---
+
+## 🛠️ Installation
+
+1. Download the latest **`.vsix`** from the [releases page](https://github.com/thothinnovations/stoner-framework-integration/releases/tag/latest).  
+2. In a terminal run  
+   ```sh
+   code --install-extension stoner-framework-integration‑x.y.z.vsix
+   ```  
+3. Reload VS Code.
+
 <br>
 
-- 🛡️ **Safe Refactoring**  
-  Rename components with F2 to automatically:
-  - Update all HTML occurrences
-  - Synchronize `_componentsMap.js` definitions
+---
+
+## ✨ What you get
+
+| Visual / Command | What it does | Where it appears |
+|------------------|--------------|------------------|
+| **`<n> usages` counter (CodeLens)** | Click to see every HTML occurrence of a placeholder | • Above each `<!-- placeholder -->` in *.html*<br>• Above each `placeholder:` entry inside **_componentsMap.js** |
+| **`open` dataFiles (CodeLens)** | Opens the JSON data file referenced by the mapped component. | After every `dataFile:` line in **_componentsMap.js** |
+| **Highlighted placeholders** | Every `<!-- placeholder -->` comment in HTML gets its own themeable colour<br>(defaults to: orange / purple). | *.html* |
+| **Ctrl‑Click navigation** | You can jump from an HTML placeholder to:<br>  • component JS file<br>  • data JSON file<br>  • its mapping in **_componentsMap.js** | *.html* |
+| **Reverse navigation** | Ctrl‑Click a placeholder inside **_componentsMap.js** to list all HTML usages. | **_componentsMap.js** |
+| **Safe Rename** | Press <kbd>F2</kbd> on a placeholder (HTML or map) to rename it everywhere—HTML files **and** `_componentsMap.js`. | *.html*, **_componentsMap.js** |
+
 <br>
 
-- 🤖 **Smart Context Handling**  
-  - Auto-detects project structure boundaries
-  - Omits data file navigation for `_empty.json` mappings
-  - Preserves relative paths when building output
+---
+
+## 🚀 Performance notes
+* All HTML files are scanned **once**, then cached per workspace.
+* Regex‑based search keeps things fast even in large code‑bases.
+* Decorations are updated only for the active editor, minimising redraw cost.
+
 <br>
 
-- 🚀 **Workspace Optimization**  
-  - Fast component resolution through cached mappings
-  - Async processing for large projects
-  - Regex-based pattern matching for reliability
-<br>
+---
 
-______________________________________
-
-# How to install it:
-
-1. Download the [`stoner-framework-integration-0.1.0.vsix` file in the releases section](https://github.com/thothinnovations/stoner-framework-integration/releases/tag/latest)
-<br>
-
-2. Open a **VS Code** terminal inside the folder where you downloaded the file and install it with:
+## 🧩 Expected project structure
 ```
-code --install-extension stoner-framework-integration-0.1.0.vsix
+your‑project/
+├─ _componentsMap.js
+├─ _components/
+│   └─ data/
+│       └─ someSection.json
+│   └─ someSection.js
+└─ _pages/
+    └─ index.html
 ```
+
+*The extension auto‑detects `_componentsMap.js` in any nested folder and scopes all work to that folder’s subtree only.*
+
 <br>
 
-3. Restart **VS Code** and you are all set!
+---
