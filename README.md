@@ -17,14 +17,15 @@ Advanced navigation, refactoring and _visual hints_ for projects that use the pl
 
 ## ✨ What you get
 
-| Visual / Command | What it does | Where it appears |
+| Feature | What it does | Where it applies |
 |------------------|--------------|------------------|
-| **`<n> usages` counter (CodeLens)** | Click to see every HTML occurrence of a placeholder | • Above each `<!-- placeholder -->` in *.html*<br>• Above each `placeholder:` entry inside **_componentsMap.js** |
-| **`open` dataFiles (CodeLens)** | Opens the JSON data file referenced by the mapped component. | After every `dataFile:` line in **_componentsMap.js** |
-| **Highlighted placeholders** | Every `<!-- placeholder -->` comment in HTML gets its own themeable colour<br>(defaults to: orange / purple). | *.html* |
-| **Ctrl‑Click navigation** | You can jump from an HTML placeholder to:<br>  • component JS file<br>  • data JSON file<br>  • its mapping in **_componentsMap.js** | *.html* |
-| **Reverse navigation** | Ctrl‑Click a placeholder inside **_componentsMap.js** to list all HTML usages. | **_componentsMap.js** |
-| **Safe Rename** | Press <kbd>F2</kbd> on a placeholder (HTML or map) to rename it everywhere—HTML files **and** `_componentsMap.js`. | *.html*, **_componentsMap.js** |
+| **`<!-- placeholder -->`<br>Highlighting** | Every placeholder gets highlighted with a color distinct from an usual `.html` comment. | any `.html` from `/_pages` |
+| `<!-- placeholder -->`<br>**Safe Renaming** | Press <kbd>F2</kbd> on a placeholder to rename it everywhere. | in `_componentsMap.js` and any `.html` from `/_pages` |
+| **`16 usages`**<br>`<!-- placeholder -->` *CodeLens counter* | Click to see every usage of a placeholder | above each placeholder in `_componentsMap.js` and any `.html` from `/_pages` |
+| **`open`** <br>`dataFile: '...`<br>*CodeLens command* | Opens the JSON data file referenced by the mapped component. | above every `dataFile: '...` in `_componentsMap.js` |
+| **<kbd>Ctrl‑Click</kbd>** any <br>`<!-- placeholder -->` | On a `.html` page to see the:<br>  • component `.js` file<br>  • mapped `.json` file<br>  • mapping in `_componentsMap.js` | any `.html` from `/_pages` |
+|  | In `_componentsMap.js` to:<br>   • list all `.html` usages. | in `_componentsMap.js` |
+
 
 <br>
 
