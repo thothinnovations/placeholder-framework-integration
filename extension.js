@@ -4,7 +4,7 @@ const fs     = require('fs');
 
 
 // ──────────────────────────────────────────────────────────────────────────
-//  New: diagnostics collection for placeholder errors
+//  diagnostics collection for every _componentsMap.js validation
 // ──────────────────────────────────────────────────────────────────────────
 const placeholderDiagnostics =
       vscode.languages.createDiagnosticCollection('componentsPlaceholders');
@@ -230,7 +230,7 @@ class PlaceholderUsageHintsProvider {
         this.onDidChangeCodeLenses = this._onDidChange.event;
     }
 
-    // helper to resolve `dataFile: '...` to an absolute path
+    // helper to resolve `dataFile: <expr>` to an absolute path
     _resolveDataFile(expr, documentText, mapDir) {
         // strip quotes / back‑ticks
         expr = expr.trim();
@@ -312,7 +312,7 @@ class PlaceholderUsageHintsProvider {
             ));
         }
 
-        // b) "go‑to" on   dataFile: <expr>,
+        // b) "open:" code‑lens on   dataFile: <expr>
         if (isMap) {
             const dataFileRe = /dataFile:\s*([^,]+),/g;     // capture raw expression
             let df;
@@ -474,51 +474,116 @@ function offsetToPosition(text, offset) {
 
 
 // ──────────────────────────────────────────────────────────────────────────
-//  New: validator for _componentsMap.js placeholders
+//  validator for _componentsMap.js:
+//     • bad placeholder syntax
+//     • duplicate placeholders
+//     • missing dataFile
+//     • missing component file
 // ──────────────────────────────────────────────────────────────────────────
 /**
- * Scan a _componentsMap.js document and return diagnostics for:
- *  • bad syntax  ('<!-- ' … ' -->')
- *  • duplicate placeholder names
  * @param {vscode.TextDocument} doc
  * @returns {vscode.Diagnostic[]}
  */
 function validateComponentsMap(doc) {
-    /** match:  placeholder: '<!-- someName -->', */
-    const rx = /placeholder:\s*(['"`])([^'"`]+)\1/g;
-
-    const text        = doc.getText();
-    const seenNames   = new Map();      // nameOnly → Position (first appearance)
+    const text       = doc.getText();
+    const mapDir     = path.dirname(doc.uri.fsPath);
     const diagnostics = [];
 
-    let m;
-    while ((m = rx.exec(text)) !== null) {
-        const fullValue        = m[2];                               // inside quotes
-        const nameOnly         = fullValue.replace(/<!--\s*|\s*-->/g, '').trim();
-        const valueStartOffset = m.index + m[0].indexOf(fullValue);
-        const valuePos         = doc.positionAt(valueStartOffset);
-        const lineRange        = doc.lineAt(valuePos.line).range;
+    // ------------------------------
+    // 1. placeholder syntax / dups
+    // ------------------------------
+    const seenNames = new Map();
+    const placeholderRx = /placeholder:\s*(['"`])([^'"`]+)\1/g;
 
-        // 1. syntax check
+    let pm;
+    while ((pm = placeholderRx.exec(text)) !== null) {
+        const fullValue        = pm[2];
+        const nameOnly         = fullValue.replace(/<!--\s*|\s*-->/g, '').trim();
+        const valueStartOffset = pm.index + pm[0].indexOf(fullValue);
+        const valueLineRange   = doc.lineAt(doc.positionAt(valueStartOffset).line).range;
+
+        // syntax
         if (!(fullValue.startsWith('<!-- ') && fullValue.endsWith(' -->'))) {
             diagnostics.push(new vscode.Diagnostic(
-                lineRange,
+                valueLineRange,
                 'Placeholder must start with "<!-- " and end with " -->".',
                 vscode.DiagnosticSeverity.Error
             ));
         }
 
-        // 2. duplicate check
+        // duplicate
         if (seenNames.has(nameOnly)) {
             diagnostics.push(new vscode.Diagnostic(
-                lineRange,
+                valueLineRange,
                 `Placeholder "${nameOnly}" is already in use.`,
                 vscode.DiagnosticSeverity.Error
             ));
         } else {
-            seenNames.set(nameOnly, valuePos);
+            seenNames.set(nameOnly, true);
         }
     }
+
+    // -------------------------------------------------
+    // 2. dataFile / component file existence checks
+    // -------------------------------------------------
+    const objRx =
+      /{\s*placeholder:\s*'<!--\s*[A-Za-z0-9_]+\s*-->',\s*dataFile:\s*([^,]+),\s*component:\s*require\(`([^`]+)`\)/gs;
+
+    // capture dataDir & noData for substitutions
+    const dataDir      = (text.match(/const\s+dataDir\s*=\s*`([^`]+)`/) || [])[1] || './_components/data';
+    const noDataIdent  = (text.match(/const\s+noData\s*=\s*`([^`]+)`/) || [])[1] || 'noData';
+
+    let om;
+    while ((om = objRx.exec(text)) !== null) {
+        const dataExpr       = om[1].trim();
+        const componentRel   = om[2];
+
+        //------------------------------------------------
+        // locate positions
+        const objStart       = om.index;
+        const objFragment    = om[0];
+
+        const dataOffset     = objStart + objFragment.indexOf(dataExpr);
+        const dataLineRange  = doc.lineAt(doc.positionAt(dataOffset).line).range;
+
+        const compOffset     = objStart + objFragment.indexOf(componentRel);
+        const compLineRange  = doc.lineAt(doc.positionAt(compOffset).line).range;
+
+        //------------------------------------------------
+        // dataFile validation
+        if (dataExpr !== 'noData' && !dataExpr.includes(noDataIdent)) {
+            let val = dataExpr;
+            const q  = val[0];
+            if ((q === '`' || q === '\'' || q === '"') && val[val.length - 1] === q) {
+                val = val.slice(1, -1);
+            }
+            val = val.replace(/\$\{dataDir\}/g, dataDir);
+            const absData = path.resolve(mapDir, val);
+
+            if (!fs.existsSync(absData)) {
+                diagnostics.push(new vscode.Diagnostic(
+                    dataLineRange,
+                    `dataFile "${val}" not found.`,
+                    vscode.DiagnosticSeverity.Error
+                ));
+            }
+        }
+
+        //------------------------------------------------
+        // component file validation
+        let compAbs = path.resolve(mapDir, componentRel);
+        if (!fs.existsSync(compAbs)) {
+            // try with .js if missing
+            if (!fs.existsSync(compAbs + '.js')) {
+                diagnostics.push(new vscode.Diagnostic(
+                    compLineRange,
+                    `Component file "${componentRel}" not found.`,
+                    vscode.DiagnosticSeverity.Error
+                ));
+            }
+        }
+    }
+
     return diagnostics;
 }
 
