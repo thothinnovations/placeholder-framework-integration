@@ -1,6 +1,14 @@
 const vscode = require('vscode');
-const path = require('path');
-const fs = require('fs');
+const path   = require('path');
+const fs     = require('fs');
+
+
+// ──────────────────────────────────────────────────────────────────────────
+//  New: diagnostics collection for placeholder errors
+// ──────────────────────────────────────────────────────────────────────────
+const placeholderDiagnostics =
+      vscode.languages.createDiagnosticCollection('componentsPlaceholders');
+
 
 // ====================================================
 // Component Definition Provider (HTML -> Components)
@@ -80,7 +88,7 @@ class ComponentUsageProvider {
 
         // Get the directory containing _componentsMap.js
         const componentsMapDir = path.dirname(document.uri.fsPath);
-        
+
         // Create search pattern relative to componentsMap directory
         const relativePattern = new vscode.RelativePattern(
             componentsMapDir,
@@ -94,11 +102,11 @@ class ComponentUsageProvider {
             const doc = await vscode.workspace.openTextDocument(uri);
             const text = doc.getText();
             const regex = new RegExp(`<!--\\s*${placeholderName}\\s*-->`, 'g');
-            
+
             let match;
             while ((match = regex.exec(text)) !== null) {
-                const position = doc.positionAt(match.index);
-                locations.push(new vscode.Location(uri, position));
+                const pos = doc.positionAt(match.index);
+                locations.push(new vscode.Location(uri, pos));
             }
         }
 
@@ -110,24 +118,24 @@ class ComponentUsageProvider {
 // Component Rename Provider (Cross-file renaming)
 // ====================================================
 class ComponentRenameProvider {
-    // eslint-disable-next-line no-unused-vars
+    /* eslint-disable no-unused-vars */
     async provideRenameEdits(document, position, newName, token) {
         let oldName;
         let componentsMapPath;
         let isJSFile = false;
 
         // Determine context
-        if (document.languageId === 'javascript' && 
+        if (document.languageId === 'javascript' &&
             path.basename(document.uri.fsPath) === '_componentsMap.js') {
             // Handle rename in componentsMap.js
             const line = document.lineAt(position).text;
             const placeholderMatch = line.match(/placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->/);
             if (!placeholderMatch) return null;
-            
+
             const nameStart = line.indexOf(placeholderMatch[1]);
             const nameEnd = nameStart + placeholderMatch[1].length;
             if (position.character < nameStart || position.character > nameEnd) return null;
-            
+
             oldName = placeholderMatch[1];
             componentsMapPath = document.uri.fsPath;
             isJSFile = true;
@@ -136,11 +144,11 @@ class ComponentRenameProvider {
             const line = document.lineAt(position).text;
             const placeholderMatch = line.match(/<!--\s*([A-Za-z0-9_]+)\s*-->/);
             if (!placeholderMatch) return null;
-            
+
             const nameStart = line.indexOf(placeholderMatch[1]);
             const nameEnd = nameStart + placeholderMatch[1].length;
             if (position.character < nameStart || position.character > nameEnd) return null;
-            
+
             oldName = placeholderMatch[1];
             componentsMapPath = findComponentsMapPath(document.uri);
             if (!componentsMapPath) return null;
@@ -175,16 +183,16 @@ class ComponentRenameProvider {
             const mapText = fs.readFileSync(componentsMapPath, 'utf8');
             const placeholderRegex = new RegExp(`placeholder:\\s*'<!--\\s*${oldName}\\s*-->'`);
             const match = placeholderRegex.exec(mapText);
-            
+
             if (match) {
                 const start = match.index + match[0].indexOf(oldName);
                 const end = start + oldName.length;
-                
+
                 // Get correct positions from componentsMap.js document
                 const mapDoc = await vscode.workspace.openTextDocument(componentsMapUri);
                 const startPos = mapDoc.positionAt(start);
                 const endPos = mapDoc.positionAt(end);
-                
+
                 edit.replace(componentsMapUri, new vscode.Range(startPos, endPos), newName);
             }
         }
@@ -192,12 +200,12 @@ class ComponentRenameProvider {
         // 2. Update all HTML files
         const relativePattern = new vscode.RelativePattern(componentsMapDir, '**/*.html');
         const htmlFiles = await vscode.workspace.findFiles(relativePattern, '**/node_modules/**');
-        
+
         for (const uri of htmlFiles) {
             const doc = await vscode.workspace.openTextDocument(uri);
             const text = doc.getText();
             const regex = new RegExp(`<!--\\s*${oldName}\\s*-->`, 'g');
-            
+
             let match;
             while ((match = regex.exec(text)) !== null) {
                 const start = match.index + match[0].indexOf(oldName);
@@ -215,9 +223,6 @@ class ComponentRenameProvider {
 
 // ========================================================================
 //  Placeholder Usage Hints Provider
-//   • shows  "<n> usages"  above every placeholder in `_pages`
-//   • shows  "<n> usages"  above every placeholder in `_componentsMap.js`
-//   • shows  "go-to"       after every  `dataFile` in `_componentsMap.js`
 // ========================================================================
 class PlaceholderUsageHintsProvider {
     constructor() {
@@ -225,9 +230,7 @@ class PlaceholderUsageHintsProvider {
         this.onDidChangeCodeLenses = this._onDidChange.event;
     }
 
-    //------------------------------------------------------------------
-    // helper – resolve  dataFile: <expr>  to an absolute path
-    //------------------------------------------------------------------
+    // helper to resolve `dataFile: '...` to an absolute path
     _resolveDataFile(expr, documentText, mapDir) {
         // strip quotes / back‑ticks
         expr = expr.trim();
@@ -246,7 +249,6 @@ class PlaceholderUsageHintsProvider {
         return path.resolve(mapDir, expr);
     }
 
-    //------------------------------------------------------------------
     async provideCodeLenses(document, token) {
         const isHtml = document.languageId === 'html';
         const isMap  = document.languageId === 'javascript' &&
@@ -254,31 +256,23 @@ class PlaceholderUsageHintsProvider {
 
         if (!isHtml && !isMap) { return []; }
 
-        //--------------------------------------------------------------
-        // 1. locate _componentsMap.js   (needed for counting usages)
-        //--------------------------------------------------------------
+        // 1. locate _componentsMap.js
         const mapPath = isMap ? document.uri.fsPath : findComponentsMapPath(document.uri);
         if (!mapPath) { return []; }
         const mapDir  = path.dirname(mapPath);
 
-        //--------------------------------------------------------------
-        // 2. gather every *.html   (once)
-        //--------------------------------------------------------------
+        // 2. gather every *.html
         const htmlFiles = await vscode.workspace.findFiles(
             new vscode.RelativePattern(mapDir, '**/*.html'),
             '**/node_modules/**');
         const htmlDocs  = await Promise.all(htmlFiles.map(uri => vscode.workspace.openTextDocument(uri)));
 
-        //--------------------------------------------------------------
         // 3. iterate through the current document
-        //--------------------------------------------------------------
         const usageCache  = new Map();
         const codeLenses  = [];
         const text        = document.getText();
 
-        //------------------------------------------------------------------
-        // 3. a)  "<n> usages"  (HTML placeholder  *or*  map placeholder)
-        //------------------------------------------------------------------
+        // a) "<n> usages"
         const placeholderRe = isHtml
             ? /<!--\s*([A-Za-z0-9_]+)\s*-->/g
             : /placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->'/g;
@@ -318,9 +312,7 @@ class PlaceholderUsageHintsProvider {
             ));
         }
 
-        //------------------------------------------------------------------
-        // 3. b)  "go‑to"  on   dataFile: <expr>,
-        //------------------------------------------------------------------
+        // b) "go‑to" on   dataFile: <expr>,
         if (isMap) {
             const dataFileRe = /dataFile:\s*([^,]+),/g;     // capture raw expression
             let df;
@@ -429,11 +421,13 @@ function parseComponentsMap(componentsMapPath) {
 
     // Extract dataDir and noData
     const dataDir = (text.match(/const dataDir\s*=\s*`([^`]+)`/) || [])[1] || './_components/data';
-    const noData = (text.match(/const noData\s*=\s*`\$\{dataDir\}\/([^`]+)`/) || [])[1];
-    const noDataValue = path.join(dataDir, noData || '_empty.json');
+    const noData = (text.match(/const noData\s*=\s*`([^`]+)`/) || [])[1];
+    const noDataValue = noData ? path.resolve(path.dirname(componentsMapPath), noData) :
+                                 path.join(dataDir, '_empty.json');
 
     // Regex to match components in the array structure
-    const componentRegex = /{\s*placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->',\s*dataFile:\s*(.*?),\s*component:\s*require\(`(.*?)`\)/gs;
+    const componentRegex =
+        /{\s*placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->',\s*dataFile:\s*(.*?),\s*component:\s*require\(`(.*?)`\)/gs;
     const entries = [];
     let match;
 
@@ -479,9 +473,58 @@ function offsetToPosition(text, offset) {
 }
 
 
+// ──────────────────────────────────────────────────────────────────────────
+//  New: validator for _componentsMap.js placeholders
+// ──────────────────────────────────────────────────────────────────────────
+/**
+ * Scan a _componentsMap.js document and return diagnostics for:
+ *  • bad syntax  ('<!-- ' … ' -->')
+ *  • duplicate placeholder names
+ * @param {vscode.TextDocument} doc
+ * @returns {vscode.Diagnostic[]}
+ */
+function validateComponentsMap(doc) {
+    /** match:  placeholder: '<!-- someName -->', */
+    const rx = /placeholder:\s*(['"`])([^'"`]+)\1/g;
+
+    const text        = doc.getText();
+    const seenNames   = new Map();      // nameOnly → Position (first appearance)
+    const diagnostics = [];
+
+    let m;
+    while ((m = rx.exec(text)) !== null) {
+        const fullValue        = m[2];                               // inside quotes
+        const nameOnly         = fullValue.replace(/<!--\s*|\s*-->/g, '').trim();
+        const valueStartOffset = m.index + m[0].indexOf(fullValue);
+        const valuePos         = doc.positionAt(valueStartOffset);
+        const lineRange        = doc.lineAt(valuePos.line).range;
+
+        // 1. syntax check
+        if (!(fullValue.startsWith('<!-- ') && fullValue.endsWith(' -->'))) {
+            diagnostics.push(new vscode.Diagnostic(
+                lineRange,
+                'Placeholder must start with "<!-- " and end with " -->".',
+                vscode.DiagnosticSeverity.Error
+            ));
+        }
+
+        // 2. duplicate check
+        if (seenNames.has(nameOnly)) {
+            diagnostics.push(new vscode.Diagnostic(
+                lineRange,
+                `Placeholder "${nameOnly}" is already in use.`,
+                vscode.DiagnosticSeverity.Error
+            ));
+        } else {
+            seenNames.set(nameOnly, valuePos);
+        }
+    }
+    return diagnostics;
+}
+
+
 // ----------------------------------------------------
 //  Decoration:  highlight  <!-- placeholderName -->
-//  Scan the given editor and colour every <!-- myPlaceholder --> comment. */
 // ----------------------------------------------------
 const placeholderDecoration = vscode.window.createTextEditorDecorationType({
     color: new vscode.ThemeColor('componentsPlaceholder.foreground')
@@ -508,28 +551,50 @@ function updatePlaceholderDecorations(editor) {
 // Activation
 // ====================================================
 function activate(context) {
+    //--------------------------------------------------
+    // 1. providers & lenses
+    //--------------------------------------------------
     context.subscriptions.push(
-        vscode.languages.registerDefinitionProvider('html', new ComponentDefinitionProvider()),
-        vscode.languages.registerDefinitionProvider('javascript', new ComponentUsageProvider()),
-        vscode.languages.registerDefinitionProvider('javascript', new MapUsageProvider()),
-        vscode.languages.registerRenameProvider('html', new ComponentRenameProvider()),
-        vscode.languages.registerRenameProvider('javascript', new ComponentRenameProvider()),
+        vscode.languages.registerDefinitionProvider('html',        new ComponentDefinitionProvider()),
+        vscode.languages.registerDefinitionProvider('javascript',  new ComponentUsageProvider()),
+        vscode.languages.registerDefinitionProvider('javascript',  new MapUsageProvider()),
+        vscode.languages.registerRenameProvider   ('html',        new ComponentRenameProvider()),
+        vscode.languages.registerRenameProvider   ('javascript',  new ComponentRenameProvider()),
 
         vscode.languages.registerCodeLensProvider(
             { language: 'html', scheme: 'file' },
             new PlaceholderUsageHintsProvider()
         ),
-        
         vscode.languages.registerCodeLensProvider(
             { language: 'javascript', scheme: 'file', pattern: '**/_componentsMap.js' },
             new PlaceholderUsageHintsProvider()
         )
     );
 
+    //--------------------------------------------------
+    // 2. validation wiring  (_componentsMap.js)
+    //--------------------------------------------------
+    function refreshDiagnostics(doc) {
+        if (path.basename(doc.uri.fsPath) !== '_componentsMap.js') { return; }
+        placeholderDiagnostics.set(doc.uri, validateComponentsMap(doc));
+    }
+
+    vscode.workspace.textDocuments.forEach(refreshDiagnostics);
+
+    context.subscriptions.push(
+        placeholderDiagnostics,
+        vscode.workspace.onDidOpenTextDocument(refreshDiagnostics),
+        vscode.workspace.onDidChangeTextDocument(e => refreshDiagnostics(e.document)),
+        vscode.workspace.onDidCloseTextDocument(doc => placeholderDiagnostics.delete(doc.uri))
+    );
+
+    //--------------------------------------------------
+    // 3. placeholder highlight init + events
+    //--------------------------------------------------
     updatePlaceholderDecorations(vscode.window.activeTextEditor);
-    context.subscriptions.push(  // re‑run when the active editor changes:
+
+    context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor(updatePlaceholderDecorations),
-        // re‑run when an html document changes:
         vscode.workspace.onDidChangeTextDocument(e => {
             const ed = vscode.window.activeTextEditor;
             if (ed && e.document === ed.document && ed.document.languageId === 'html') {
