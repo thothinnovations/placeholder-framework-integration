@@ -20,7 +20,7 @@ Advanced navigation, hints, diagnostics and refactoring for `stoner-framework` p
 | Feature | What it does | Where it applies |
 |----------------------|--------------|------------------|
 | **`<!-- placeholder -->` Highlighting** | Every placeholder is tinted in a color distinct from a normal HTML comment. | any `.html` from `/_pages` |
-| **Inline diagnostics** *(errors / warnings)* | While you edit **`_componentsMap.js`** the extension instantly checks for:<br>  • bad placeholder syntax (`<!-- ` and ` -->` are required)<br>  • duplicate placeholders<br>  • missing **`dataFile`** or **`component`** files<br>  • placeholders that are **not used** in any HTML page | in `_componentsMap.js` |
+| **Inline diagnostics** *(errors / warnings)* | While you edit **`_componentsMap.js`** the extension instantly checks for:<br>  • bad placeholder syntax<br>  • duplicate placeholders<br>  • unused placeholders<br>  • invalid `.json` format in **`dataFile`**<br>  • invalid **`component`** file structure<br>  • missing **`dataFile`** or **`component`** files | in `_componentsMap.js` |
 | **Safe Renaming** | Press <kbd>F2</kbd> on a placeholder to rename it everywhere (map & pages). | in `_componentsMap.js` and any `.html` from `/_pages` |
 | **`16 usages`** CodeLens | Shows how many times a placeholder appears; click to jump to all usages. | above each placeholder in `_componentsMap.js` and any `.html` from `/_pages` |
 | **`component` / `dataFile`** CodeLens | Jump straight to the mapped component’s `.js` module or its `.json` data file (the second button is hidden when the mapping uses **`noData`**). | above each placeholder in `.html` files |

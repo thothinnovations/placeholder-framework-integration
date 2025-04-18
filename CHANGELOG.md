@@ -13,6 +13,12 @@
   - **`component`** – opens the mapped component’s `.js` module.  
   - **`dataFile`** – opens the mapped `.json` file (omitted when the mapping uses `noData`).  
 
+- **Inline diagnostics errors** 
+  While editing **`_componentsMap.js`** the extension now checks:
+  - If the `dataFile:` contains valid `.json` data.
+  - If the `component:` properly exports a function.
+
+
 #### Fixed
 - **Missing buttons / false “No component found” error**  
   A fragile regex in `parseComponentsMap()` failed when a `dataFile:` line contained an inline `//` comment, causing the corresponding placeholder (e.g. `bottlesSection_vsl`) to be skipped.  

@@ -731,18 +731,43 @@ function validateComponentsMap(doc) {
                     `dataFile "${val}" not found.`,
                     vscode.DiagnosticSeverity.Error
                 ));
+            } else {
+                // New: Check if JSON is valid
+                try {
+                    const content = fs.readFileSync(absData, 'utf8');
+                    JSON.parse(content);
+                } catch (e) {
+                    diagnostics.push(new vscode.Diagnostic(
+                        dataLineRange,
+                        `dataFile "${val}" contains invalid JSON.`,
+                        vscode.DiagnosticSeverity.Error
+                    ));
+                }
             }
         }
 
         //------------------------------------------------
         // component file validation
         let compAbs = path.resolve(mapDir, componentRel);
-        if (!fs.existsSync(compAbs) && !fs.existsSync(compAbs + '.js')) {
+        const compExists = (fs.existsSync(compAbs) || fs.existsSync(compAbs + '.js'));
+        if (!compExists) {
             diagnostics.push(new vscode.Diagnostic(
                 compLineRange,
                 `Component file "${componentRel}" not found.`,
                 vscode.DiagnosticSeverity.Error
             ));
+        } else {
+            // New: Check if component exports a function
+            const actualPath = fs.existsSync(compAbs) ? compAbs : compAbs + '.js';
+            const content = fs.readFileSync(actualPath, 'utf8');
+            const exportsFunction = /module\.exports\s*=\s*(function\b|\([^)]*\)\s*=>)/.test(content);
+            if (!exportsFunction) {
+                diagnostics.push(new vscode.Diagnostic(
+                    compLineRange,
+                    `Component file "${componentRel}" does not export a valid function.`,
+                    vscode.DiagnosticSeverity.Error
+                ));
+            }
         }
     }
 
