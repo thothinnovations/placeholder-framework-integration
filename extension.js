@@ -479,18 +479,48 @@ function offsetToPosition(text, offset) {
 //     • duplicate placeholders
 //     • missing dataFile
 //     • missing component file
+//     • unused component
 // ──────────────────────────────────────────────────────────────────────────
 /**
  * @param {vscode.TextDocument} doc
  * @returns {vscode.Diagnostic[]}
  */
 function validateComponentsMap(doc) {
-    const text       = doc.getText();
-    const mapDir     = path.dirname(doc.uri.fsPath);
+    const text        = doc.getText();
+    const mapDir      = path.dirname(doc.uri.fsPath);
     const diagnostics = [];
 
+    // helper – gather every *.html file (sync, excluding node_modules)
+    function _gatherHtmlFilesSync(dir, list = []) {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (entry.name === 'node_modules') continue;
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                _gatherHtmlFilesSync(full, list);
+            } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.html')) {
+                list.push(full);
+            }
+        }
+        return list;
+    }
+
+    // build set of placeholder usages across all html pages
+    const usedPlaceholders = (() => {
+        const set = new Set();
+        const htmlFiles = _gatherHtmlFilesSync(mapDir);
+        const rx = /<!--\s*([A-Za-z0-9_]+)\s*-->/g;
+        for (const file of htmlFiles) {
+            const content = fs.readFileSync(file, 'utf8');
+            let m;
+            while ((m = rx.exec(content)) !== null) {
+                set.add(m[1]);
+            }
+        }
+        return set;
+    })();
+
     // ------------------------------
-    // 1. placeholder syntax / dups
+    // 1. placeholder syntax / dups / unused
     // ------------------------------
     const seenNames = new Map();
     const placeholderRx = /placeholder:\s*(['"`])([^'"`]+)\1/g;
@@ -520,6 +550,15 @@ function validateComponentsMap(doc) {
             ));
         } else {
             seenNames.set(nameOnly, true);
+        }
+
+        // unused
+        if (!usedPlaceholders.has(nameOnly)) {
+            diagnostics.push(new vscode.Diagnostic(
+                valueLineRange,
+                `The placeholder "<!-- ${nameOnly} -->" is not being used in any .html page.`,
+                vscode.DiagnosticSeverity.Warning
+            ));
         }
     }
 
@@ -572,15 +611,12 @@ function validateComponentsMap(doc) {
         //------------------------------------------------
         // component file validation
         let compAbs = path.resolve(mapDir, componentRel);
-        if (!fs.existsSync(compAbs)) {
-            // try with .js if missing
-            if (!fs.existsSync(compAbs + '.js')) {
-                diagnostics.push(new vscode.Diagnostic(
-                    compLineRange,
-                    `Component file "${componentRel}" not found.`,
-                    vscode.DiagnosticSeverity.Error
-                ));
-            }
+        if (!fs.existsSync(compAbs) && !fs.existsSync(compAbs + '.js')) {
+            diagnostics.push(new vscode.Diagnostic(
+                compLineRange,
+                `Component file "${componentRel}" not found.`,
+                vscode.DiagnosticSeverity.Error
+            ));
         }
     }
 
