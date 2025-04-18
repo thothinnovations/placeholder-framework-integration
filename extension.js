@@ -267,6 +267,9 @@ class PlaceholderUsageHintsProvider {
             '**/node_modules/**');
         const htmlDocs  = await Promise.all(htmlFiles.map(uri => vscode.workspace.openTextDocument(uri)));
 
+        // 2b. Parse the map once (needed for go‑to buttons)
+        const { componentsMap, noDataValue } = parseComponentsMap(mapPath);
+
         // 3. iterate through the current document
         const usageCache  = new Map();
         const codeLenses  = [];
@@ -310,15 +313,52 @@ class PlaceholderUsageHintsProvider {
                     arguments: [ document.uri, pos, entry.locations ]
                 }
             ));
-        }
 
-        // b) "open:" code‑lens on   dataFile: <expr>
+            // ----------------------------------------------------------------
+            // NEW:   "component"   &   "dataFile"   (HTML only)
+            // ----------------------------------------------------------------
+            if (isHtml && componentsMap.has(name)) {
+                const info = componentsMap.get(name);
+
+                // component
+                const absComponent = path.resolve(mapDir, info.componentPath);
+                if (fs.existsSync(absComponent)) {
+                    codeLenses.push(new vscode.CodeLens(
+                        lensRange,
+                        {
+                            title: 'component',
+                            tooltip: 'Open component source',
+                            command: 'vscode.open',
+                            arguments: [ vscode.Uri.file(absComponent) ]
+                        }
+                    ));
+                }
+
+                // dataFile    (skip when mapped with noData)
+                if (info.dataFile !== noDataValue) {
+                    const absData = path.resolve(mapDir, info.dataFile);
+                    if (fs.existsSync(absData)) {
+                        codeLenses.push(new vscode.CodeLens(
+                            lensRange,
+                            {
+                                title: 'dataFile',
+                                tooltip: 'Open JSON data file',
+                                command: 'vscode.open',
+                                arguments: [ vscode.Uri.file(absData) ]
+                            }
+                        ));
+                    }
+                }
+            }
+        }
+        // b) "open:" CodeLens on both dataFile: <expr> and component: require(`…`)
         if (isMap) {
-            const dataFileRe = /dataFile:\s*([^,]+),/g;     // capture raw expression
+            /* ───────────── dataFile ───────────── */
+            const dataFileRe = /dataFile:\s*([^,]+),/g;        // raw expression
             let df;
             while ((df = dataFileRe.exec(text)) !== null) {
                 const rawExpr = df[1].trim();
-                if (rawExpr === 'noData') { continue; }     // skip noData entries
+                if (rawExpr === 'noData') { continue; }        // skip noData
 
                 const absPath = this._resolveDataFile(rawExpr, text, mapDir);
                 if (!fs.existsSync(absPath)) { continue; }
@@ -330,7 +370,37 @@ class PlaceholderUsageHintsProvider {
                     lensRange,
                     {
                         title: 'open:',
-                        tooltip: '',
+                        tooltip: 'Open mapped data file',
+                        command: 'vscode.open',
+                        arguments: [ vscode.Uri.file(absPath) ]
+                    }
+                ));
+            }
+
+            /* ───────────── component ───────────── */
+            const componentRe = /component:\s*require\(`([^`]+)`\)/g;
+            let cm;
+            while ((cm = componentRe.exec(text)) !== null) {
+                const relPath = cm[1].trim();
+                let absPath   = path.resolve(mapDir, relPath);
+
+                // tolerate omitted “.js”
+                if (!fs.existsSync(absPath)) {
+                    if (fs.existsSync(absPath + '.js')) {
+                        absPath += '.js';
+                    } else {
+                        continue;    // file truly missing
+                    }
+                }
+
+                const cmPos     = document.positionAt(cm.index);
+                const lensRange = new vscode.Range(cmPos.line, 0, cmPos.line, 0);
+
+                codeLenses.push(new vscode.CodeLens(
+                    lensRange,
+                    {
+                        title: 'open:',
+                        tooltip: 'Open component module',
                         command: 'vscode.open',
                         arguments: [ vscode.Uri.file(absPath) ]
                     }
@@ -339,6 +409,58 @@ class PlaceholderUsageHintsProvider {
         }
 
         return codeLenses;
+    }
+}
+
+
+// ============================================================================
+// dataFile mappings CodeLens  ("{n} mappings" on /_data/*.json )
+// ============================================================================
+class DataFileMappingsLensProvider {
+    async provideCodeLenses(document, token) {
+        // 1. only for JSON files inside "/_data"
+        if (document.languageId !== 'json') { return []; }
+        const fsPath = document.uri.fsPath;
+        if (!fsPath.includes(`${path.sep}_data${path.sep}`)) { return []; }
+
+        // 2. locate _componentsMap.js
+        const mapPath = findComponentsMapPath(document.uri);
+        if (!mapPath) { return []; }
+        const mapDir = path.dirname(mapPath);
+
+        // 3. parse the map and collect matches
+        const { componentsMap } = parseComponentsMap(mapPath);
+        const matching = [];
+
+        for (const [placeholder, info] of componentsMap.entries()) {
+            const absData = path.resolve(mapDir, info.dataFile);
+            if (absData === fsPath) {
+                matching.push(placeholder);
+            }
+        }
+
+        if (matching.length === 0) { return []; }
+
+        // 4. build locations → each placeholder's mapping line
+        const locations = matching
+            .map(name => {
+                const pos = findPlaceholderPositionInComponentsMap(mapPath, name);
+                return pos ? new vscode.Location(vscode.Uri.file(mapPath), pos) : null;
+            })
+            .filter(Boolean);
+
+        const lensRange = new vscode.Range(0, 0, 0, 0);   // always very top of the JSON
+        return [
+            new vscode.CodeLens(
+                lensRange,
+                {
+                    title: `${matching.length} mappings`,
+                    tooltip: 'Show mapping entries in _componentsMap.js',
+                    command: 'editor.action.showReferences',
+                    arguments: [ document.uri, new vscode.Position(0, 0), locations ]
+                }
+            )
+        ];
     }
 }
 
@@ -425,9 +547,13 @@ function parseComponentsMap(componentsMapPath) {
     const noDataValue = noData ? path.resolve(path.dirname(componentsMapPath), noData) :
                                  path.join(dataDir, '_empty.json');
 
-    // Regex to match components in the array structure
+    // Regex to match one mapping object – robust to inline comments
+    //   { placeholder:'<!-- name -->', … dataFile: … , … component: require(`…`) … }
+    //
+    // Anything up to the next closing brace is allowed between the fields.
     const componentRegex =
-        /{\s*placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->',\s*dataFile:\s*(.*?),\s*component:\s*require\(`(.*?)`\)/gs;
+        /{\s*[^}]*?placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->'[^}]*?dataFile:\s*([^,]+),[^}]*?component:\s*require\(`([^`]+)`\)[^}]*?}/gs;
+
     const entries = [];
     let match;
 
@@ -669,6 +795,11 @@ function activate(context) {
         vscode.languages.registerCodeLensProvider(
             { language: 'javascript', scheme: 'file', pattern: '**/_componentsMap.js' },
             new PlaceholderUsageHintsProvider()
+        ),
+        // NEW:  "{n} mappings" lens on /_data/*.json
+        vscode.languages.registerCodeLensProvider(
+            { language: 'json', scheme: 'file', pattern: '**/_data/**/*.json' },
+            new DataFileMappingsLensProvider()
         )
     );
 
