@@ -19,13 +19,12 @@ Advanced navigation, refactoring and _visual hints_ for projects that use the pl
 
 | Feature | What it does | Where it applies |
 |------------------|--------------|------------------|
-| **`<!-- placeholder -->`<br>Highlighting** | Every placeholder gets highlighted with a color distinct from an usual `.html` comment. | any `.html` from `/_pages` |
-| `<!-- placeholder -->`<br>**Safe Renaming** | Press <kbd>F2</kbd> on a placeholder to rename it everywhere. | in `_componentsMap.js` and any `.html` from `/_pages` |
-| **`16 usages`**<br>`<!-- placeholder -->` *CodeLens counter* | You can click it to see every usage of a placeholder | above each placeholder in `_componentsMap.js` and any `.html` from `/_pages` |
-| **`open`** <br>`dataFile: '...`<br>*CodeLens command* | You can click it to open the `.json` file mapped to a placeholder. | above every `dataFile: '...` in `_componentsMap.js` |
-| **<kbd>Ctrl‑Click</kbd>** any <br>`<!-- placeholder -->` | On a `.html` page to see the:<br>  • component `.js` file<br>  • mapped `.json` file<br>  • mapping in `_componentsMap.js` | any `.html` from `/_pages` |
-|  | In `_componentsMap.js` to:<br>   • list all `.html` usages. | in `_componentsMap.js` |
-
+| **`<!-- placeholder -->`<br>Highlighting** | Every placeholder is tinted in a color distinct from a normal HTML comment. | any `.html` from `/_pages` |
+| **Inline diagnostics**<br>(errors / warnings) | While you edit **`_componentsMap.js`** the extension instantly checks for:<br>  • bad placeholder syntax (`<!-- name -->` required)<br>  • duplicate placeholders<br>  • missing **`dataFile`** or **`component`** files<br>  • placeholders that are **not used** in any HTML page | in `_componentsMap.js` |
+| `<!-- placeholder -->`<br>**Safe Renaming** | Press <kbd>F2</kbd> on a placeholder to rename it everywhere (map & pages). | in `_componentsMap.js` and any `.html` from `/_pages` |
+| **`16 usages`**<br>`<!-- placeholder -->` *CodeLens* | Shows how many times a placeholder appears; click to jump to all usages. | above each placeholder in `_componentsMap.js` and any `.html` from `/_pages` |
+| **`open`** <br>`dataFile: '…'` *CodeLens* | Click to open the JSON file mapped to a placeholder. | above every `dataFile: '…'` in `_componentsMap.js` |
+| **<kbd>Ctrl‑Click</kbd>** any <br>`<!-- placeholder -->` | On a page: go to the component source, its JSON, and the mapping entry.<br>On `_componentsMap.js`: list all HTML usages of that placeholder. | in `_componentsMap.js` and any `.html` from `/_pages` |
 
 <br>
 
@@ -36,7 +35,7 @@ Advanced navigation, refactoring and _visual hints_ for projects that use the pl
 ## 🚀 Performance notes
 * All HTML files are scanned **once**, then cached per workspace.
 * Regex‑based search keeps things fast even in large code‑bases.
-* Decorations are updated only for the active editor, minimising redraw cost.
+* Decorations and diagnostics are updated only for the active editor, minimising redraw cost.
 
 <br>
 
