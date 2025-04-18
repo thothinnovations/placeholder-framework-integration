@@ -1,6 +1,6 @@
-# Stoner‑Framework VS Code Extension  
+# `stoner-framework` VS Code Extension  
 
-Advanced navigation, refactoring and _visual hints_ for projects that use the placeholders pattern.
+Advanced navigation, hints, diagnostics and refactoring for `stoner-framework` projects using the `<!-- placeholder -->` pattern.
 
 <br>
 
