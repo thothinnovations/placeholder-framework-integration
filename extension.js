@@ -569,6 +569,43 @@ class JsonPublicAssetLinkProvider {
 
 
 // ============================================================================
+//  DocumentLink provider  →  "/public/…"   links inside JavaScript component files
+// ============================================================================
+class JsPublicAssetLinkProvider {
+    /**
+     * @param {vscode.TextDocument} document
+     * @returns {vscode.DocumentLink[]}
+     */
+    provideDocumentLinks(document) {
+        if (document.languageId !== 'javascript') { return []; }
+        // only for JS files inside "/_components"
+        if (!document.uri.fsPath.includes(`${path.sep}_components${path.sep}`)) { return []; }
+
+        const componentsMapPath = findComponentsMapPath(document.uri);
+        if (!componentsMapPath) { return []; }
+        const projectDir = path.dirname(componentsMapPath);
+
+        const links = [];
+        const text = document.getText();
+        const rx = /['"`]([^'"`]*\/public\/[^'"`]+)['"`]/g;
+
+        let m;
+        while ((m = rx.exec(text)) !== null) {
+            const rawPath = m[1];
+            if (!rawPath.startsWith('/public/')) { continue; }
+
+            const abs = path.resolve(projectDir, rawPath.slice(1));
+            const start = document.positionAt(m.index + 1);
+            const end = document.positionAt(m.index + 1 + rawPath.length);
+            links.push(new vscode.DocumentLink(new vscode.Range(start, end), vscode.Uri.file(abs)));
+        }
+
+        return links;
+    }
+}
+
+
+// ============================================================================
 //  CodeLens provider: "{n} mappings" on component .js files in /_components
 // ============================================================================
 class ComponentFileMappingsLensProvider {
@@ -944,6 +981,49 @@ function validateJsonPublicAssets(doc) {
 
 /**
  * @param {vscode.TextDocument} doc
+ * @returns {vscode.Diagnostic[]}
+ */
+function validateJsPublicAssets(doc) {
+    if (doc.languageId !== 'javascript' || !doc.uri.fsPath.includes(`${path.sep}_components${path.sep}`)) {
+        return [];
+    }
+
+    const componentsMapPath = findComponentsMapPath(doc.uri);
+    if (!componentsMapPath) {
+        return [];
+    }
+    const projectDir = path.dirname(componentsMapPath);
+
+    const diagnostics = [];
+    const text = doc.getText();
+    const rx = /['"`]([^'"`]*\/public\/[^'"`]+)['"`]/g;
+
+    let m;
+    while ((m = rx.exec(text)) !== null) {
+        const rawPath = m[1];
+        if (!rawPath.startsWith('/public/')) {
+            continue;
+        }
+
+        const abs = path.resolve(projectDir, rawPath.slice(1)); // strip leading '/'
+        const start = doc.positionAt(m.index + 1);
+        const end = doc.positionAt(m.index + 1 + rawPath.length);
+
+        if (!fs.existsSync(abs)) {
+            diagnostics.push(new vscode.Diagnostic(
+                new vscode.Range(start, end),
+                `Asset "${rawPath}" not found.`,
+                vscode.DiagnosticSeverity.Error
+            ));
+        }
+    }
+
+    return diagnostics;
+}
+
+
+/**
+ * @param {vscode.TextDocument} doc
  * Emits a warning on the `module.exports` line if this component
  * is not referenced in _componentsMap.js.
  */
@@ -1030,10 +1110,15 @@ function activate(context) {
             { language: 'json', scheme: 'file', pattern: '**/_data/**/*.json' },
             new DataFileMappingsLensProvider()
         ),
-        // NEW: "/public/…" links inside JSON files
+        // "/public/…" links inside JSON files
         vscode.languages.registerDocumentLinkProvider(
             { language: 'json', scheme: 'file', pattern: '**/_data/**/*.json' },
             new JsonPublicAssetLinkProvider()
+        ),
+        // "/public/…" links inside JS component files
+        vscode.languages.registerDocumentLinkProvider(
+            { language: 'javascript', scheme: 'file', pattern: '**/_components/**/*.js' },
+            new JsPublicAssetLinkProvider()
         )
     );
 
@@ -1046,10 +1131,16 @@ function activate(context) {
     }
 
     function refreshPublicAssetDiagnostics(doc) {
-        if (doc.languageId !== 'json' || !doc.uri.fsPath.includes(`${path.sep}_data${path.sep}`)) { return; }
-        publicAssetDiagnostics.set(doc.uri, validateJsonPublicAssets(doc));
+        // JSON files under _data
+        if (doc.languageId === 'json' && doc.uri.fsPath.includes(`${path.sep}_data${path.sep}`)) {
+            publicAssetDiagnostics.set(doc.uri, validateJsonPublicAssets(doc));
+        }
+        // JavaScript component files under _components
+        else if (doc.languageId === 'javascript' && doc.uri.fsPath.includes(`${path.sep}_components${path.sep}`)) {
+            publicAssetDiagnostics.set(doc.uri, validateJsPublicAssets(doc));
+        }
     }
-
+    
     vscode.workspace.textDocuments.forEach(doc => {
         refreshComponentsMapDiagnostics(doc);
         refreshPublicAssetDiagnostics(doc);
