@@ -2,7 +2,7 @@
   "name": "stoner-framework-integration",
   "displayName": "stoner-framework Integration",
   "description": "Advanced navigation, hints, diagnostics and refactoring for stoner-framework projects",
-  "version": "0.4.6",
+  "version": "0.5.0",
   "publisher": "Thoth Inovacoes LTDA",
   "repository": {
     "type": "git",
