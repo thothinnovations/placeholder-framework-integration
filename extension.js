@@ -16,6 +16,13 @@ const placeholderDiagnostics =
 const publicAssetDiagnostics =
       vscode.languages.createDiagnosticCollection('jsonPublicAssets');
 
+
+// ──────────────────────────────────────────────────────────────────────────
+//  diagnostics collection for unmapped component files
+// ──────────────────────────────────────────────────────────────────────────
+const componentMappingDiagnostics =
+      vscode.languages.createDiagnosticCollection('componentMappings');
+
       
 // ====================================================
 // Component Definition Provider (HTML -> Components)
@@ -561,6 +568,61 @@ class JsonPublicAssetLinkProvider {
 }
 
 
+// ============================================================================
+//  CodeLens provider: "{n} mappings" on component .js files in /_components
+// ============================================================================
+class ComponentFileMappingsLensProvider {
+    async provideCodeLenses(document, token) {
+        // only for JS files inside "/_components"
+        if (document.languageId !== 'javascript'
+         || !document.uri.fsPath.includes(`${path.sep}_components${path.sep}`)) {
+            return [];
+        }
+
+        const mapPath = findComponentsMapPath(document.uri);
+        if (!mapPath) {
+            return [];
+        }
+        const mapDir = path.dirname(mapPath);
+        const { componentsMap } = parseComponentsMap(mapPath);
+
+        const locations = [];
+        let count = 0;
+
+        for (const [placeholder, info] of componentsMap.entries()) {
+            let compPath = path.resolve(mapDir, info.componentPath);
+            if (!fs.existsSync(compPath) && fs.existsSync(compPath + '.js')) {
+                compPath += '.js';
+            }
+            if (compPath === document.uri.fsPath) {
+                count++;
+                const pos = findPlaceholderPositionInComponentsMap(mapPath, placeholder);
+                if (pos) {
+                    locations.push(new vscode.Location(vscode.Uri.file(mapPath), pos));
+                }
+            }
+        }
+
+        if (count === 0) {
+            return [];
+        }
+
+        const lensRange = new vscode.Range(0, 0, 0, 0);
+        return [
+            new vscode.CodeLens(
+                lensRange,
+                {
+                    title: `${count} mappings`,
+                    tooltip: 'Show mapping entries in _componentsMap.js',
+                    command: 'editor.action.showReferences',
+                    arguments: [ document.uri, new vscode.Position(0, 0), locations ]
+                }
+            )
+        ];
+    }
+}
+
+
 // ====================================================
 // Shared Utility Functions
 // ====================================================
@@ -880,6 +942,62 @@ function validateJsonPublicAssets(doc) {
 }
 
 
+/**
+ * @param {vscode.TextDocument} doc
+ * Emits a warning on the `module.exports` line if this component
+ * is not referenced in _componentsMap.js.
+ */
+function refreshComponentMappingDiagnostics(doc) {
+    // only for JS files inside "/_components"
+    if (doc.languageId !== 'javascript'
+     || !doc.uri.fsPath.includes(`${path.sep}_components${path.sep}`)) {
+        componentMappingDiagnostics.delete(doc.uri);
+        return;
+    }
+
+    const componentsMapPath = findComponentsMapPath(doc.uri);
+    if (!componentsMapPath) {
+        componentMappingDiagnostics.delete(doc.uri);
+        return;
+    }
+
+    const mapDir = path.dirname(componentsMapPath);
+    const { componentsMap } = parseComponentsMap(componentsMapPath);
+
+    // collect all placeholders that point at this file
+    const matches = [];
+    for (const [placeholder, info] of componentsMap.entries()) {
+        let compPath = path.resolve(mapDir, info.componentPath);
+        // tolerate omitted “.js”
+        if (!fs.existsSync(compPath) && fs.existsSync(compPath + '.js')) {
+            compPath += '.js';
+        }
+        if (compPath === doc.uri.fsPath) {
+            matches.push(placeholder);
+        }
+    }
+
+    const diagnostics = [];
+    if (matches.length === 0) {
+        // find the first line with "module.exports"
+        const lines = doc.getText().split('\n');
+        for (let i = 0; i < lines.length; i++) {
+            if (/module\.exports/.test(lines[i])) {
+                const range = new vscode.Range(i, 0, i, lines[i].length);
+                diagnostics.push(new vscode.Diagnostic(
+                    range,
+                    'Component has 0 mappings in _componentsMap.js',
+                    vscode.DiagnosticSeverity.Warning
+                ));
+                break;
+            }
+        }
+    }
+
+    componentMappingDiagnostics.set(doc.uri, diagnostics);
+}
+
+
 // ====================================================
 // Activation
 // ====================================================
@@ -901,6 +1019,11 @@ function activate(context) {
         vscode.languages.registerCodeLensProvider(
             { language: 'javascript', scheme: 'file', pattern: '**/_componentsMap.js' },
             new PlaceholderUsageHintsProvider()
+        ),
+        // "{n} mappings" lens on component .js files
+        vscode.languages.registerCodeLensProvider(
+            { language: 'javascript', scheme: 'file', pattern: '**/_components/**/*.js' },
+            new ComponentFileMappingsLensProvider()
         ),
         // "{n} mappings" lens on /_data/*.json
         vscode.languages.registerCodeLensProvider(
@@ -930,23 +1053,28 @@ function activate(context) {
     vscode.workspace.textDocuments.forEach(doc => {
         refreshComponentsMapDiagnostics(doc);
         refreshPublicAssetDiagnostics(doc);
+        refreshComponentMappingDiagnostics(doc);
     });
 
     context.subscriptions.push(
         placeholderDiagnostics,
         publicAssetDiagnostics,
+        componentMappingDiagnostics,
 
         vscode.workspace.onDidOpenTextDocument(doc => {
             refreshComponentsMapDiagnostics(doc);
             refreshPublicAssetDiagnostics(doc);
+            refreshComponentMappingDiagnostics(doc);
         }),
         vscode.workspace.onDidChangeTextDocument(e => {
             refreshComponentsMapDiagnostics(e.document);
             refreshPublicAssetDiagnostics(e.document);
+            refreshComponentMappingDiagnostics(e.document);
         }),
         vscode.workspace.onDidCloseTextDocument(doc => {
             placeholderDiagnostics.delete(doc.uri);
             publicAssetDiagnostics.delete(doc.uri);
+            componentMappingDiagnostics.delete(doc.uri);
         })
     );
 
