@@ -1,17 +1,36 @@
-### `0.4.6` ‑ 2025‑04‑18
+### `0.5.0` ‑ 2025‑04‑19
 #### Added
-- **CodeLens: `{n} mappings` for any `.json` dataFile**  
-  Displays how many times the current JSON file is referenced in **`_componentsMap.js`** and, when clicked, lists every mapping line.
+- **Clickable `/public` asset path links**  
+  - Any `/public/...` paths in `.js` component files or `.json` dataFiles are underlined and become clickable links (Ctrl‑Click) to open the asset file.
+
 <br>
 
-- **CodeLens: `open` for any `component:` entry in `_componentsMap.js`**  
-  Opens the corresponding `.js` file for the component.
+- **CodeLens: `{n} mappings` for any `.js` component file**  
+  Displays how many times the current `.js` component file is referenced in **`_componentsMap.js`** and, when clicked, lists every mapping line
+  
 <br>
+
+- **Inline diagnostics** *(errors / warnings)*
+  - The extension now displays a warning if a component is not being mapped anywhere in `_componentsMap.js`
+  - When editing a `.js` component file or a `.json` dataFile, any `/public/...` path that does not resolve to an existing file produces an inline error on that line.
+
+#### Changed
+- **package.json activationEvents** now includes `onLanguage:json` so the extension activates immediately when opening `.json` files.
+
+---
+
+### `0.4.6` ‑ 2025‑04‑18
+#### Added
+- **CodeLens: `{n} mappings` for any `.json` dataFile**  
+  Displays how many times the current JSON file is referenced in **`_componentsMap.js`** and, when clicked, lists every mapping line.<br>
+
+- **CodeLens: `open` for any `component:` entry in `_componentsMap.js`**  
+  Opens the corresponding `.js` file for the component.<br>
 
 - **CodeLens on HTML placeholders**  
   In addition to *“{n} usages”*, each `<!-- placeholder -->` inside an HTML file now gets:  
   - **`component`** – opens the mapped component’s `.js` module.  
-  - **`dataFile`** – opens the mapped `.json` file (omitted when the mapping uses `noData`).  
+  - **`dataFile`** – opens the mapped `.json` file (omitted when the mapping uses `noData`).
 
 - **Inline diagnostics errors** 
   While editing **`_componentsMap.js`** the extension now checks:
@@ -26,7 +45,7 @@
 
 ---
 
-### `0.4.2` ‑ 2025‑04‑17
+### `0.4.2` ‑ 2025‑04‑17
 #### Added
 - **Live placeholder validation for `_componentsMap.js`**  
   - **Syntax checker** – raises an error when a `placeholder:` value does not **start** with `<!-- ` *or* does not **end** with ` -->`.  
