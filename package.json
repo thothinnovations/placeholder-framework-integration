@@ -16,7 +16,8 @@
   ],
   "activationEvents": [
     "onLanguage:html",
-    "onLanguage:javascript"
+    "onLanguage:javascript",
+    "onLanguage:json"
   ],
   "main": "./extension.js",
   "contributes": {

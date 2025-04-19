@@ -10,6 +10,13 @@ const placeholderDiagnostics =
       vscode.languages.createDiagnosticCollection('componentsPlaceholders');
 
 
+// ──────────────────────────────────────────────────────────────────────────
+//  diagnostics collection for missing  /public/…  assets inside JSON files
+// ──────────────────────────────────────────────────────────────────────────
+const publicAssetDiagnostics =
+      vscode.languages.createDiagnosticCollection('jsonPublicAssets');
+
+      
 // ====================================================
 // Component Definition Provider (HTML -> Components)
 // ====================================================
@@ -519,6 +526,41 @@ class MapUsageProvider {
 }
 
 
+// ============================================================================
+//  DocumentLink provider  →  "/public/…"   links inside /_data/*.json
+// ============================================================================
+class JsonPublicAssetLinkProvider {
+    /**
+     * @param {vscode.TextDocument} document
+     * @returns {vscode.DocumentLink[]}
+     */
+    provideDocumentLinks(document) {
+        if (document.languageId !== 'json') { return []; }
+
+        const mapPath = findComponentsMapPath(document.uri);
+        if (!mapPath) { return []; }
+        const projectDir = path.dirname(mapPath);
+
+        const links   = [];
+        const text    = document.getText();
+        const rx      = /"([^"]*\/public\/[^"]+)"/g;
+
+        let m;
+        while ((m = rx.exec(text)) !== null) {
+            const rawPath = m[1];
+            if (!rawPath.startsWith('/public/')) { continue; }
+
+            const abs   = path.resolve(projectDir, rawPath.slice(1));  // drop leading '/'
+            const start = document.positionAt(m.index + 1);            // skip opening quote
+            const end   = document.positionAt(m.index + 1 + rawPath.length);
+
+            links.push(new vscode.DocumentLink(new vscode.Range(start, end), vscode.Uri.file(abs)));
+        }
+        return links;
+    }
+}
+
+
 // ====================================================
 // Shared Utility Functions
 // ====================================================
@@ -798,6 +840,45 @@ function updatePlaceholderDecorations(editor) {
 }
 
 
+// --------------------------------------------------------------------------
+//  validate one  /_data/*.json  file for missing  /public/…  assets
+// --------------------------------------------------------------------------
+/**
+ * @param {vscode.TextDocument} doc
+ * @returns {vscode.Diagnostic[]}
+ */
+function validateJsonPublicAssets(doc) {
+    if (doc.languageId !== 'json') { return []; }
+
+    const mapPath = findComponentsMapPath(doc.uri);
+    if (!mapPath) { return []; }
+    const projectDir = path.dirname(mapPath);
+
+    const diagnostics = [];
+    const text        = doc.getText();
+    const rx          = /"([^"]*\/public\/[^"]+)"/g;
+
+    let m;
+    while ((m = rx.exec(text)) !== null) {
+        const rawPath = m[1];
+        if (!rawPath.startsWith('/public/')) { continue; }
+
+        const abs = path.resolve(projectDir, rawPath.slice(1));   // strip leading '/'
+
+        if (!fs.existsSync(abs)) {
+            const start = doc.positionAt(m.index + 1);            // inside the quotes
+            const end   = doc.positionAt(m.index + 1 + rawPath.length);
+
+            diagnostics.push(new vscode.Diagnostic(
+                new vscode.Range(start, end),
+                `Asset "${rawPath}" not found.`,
+                vscode.DiagnosticSeverity.Error
+            ));
+        }
+    }
+    return diagnostics;
+}
+
 
 // ====================================================
 // Activation
@@ -821,28 +902,52 @@ function activate(context) {
             { language: 'javascript', scheme: 'file', pattern: '**/_componentsMap.js' },
             new PlaceholderUsageHintsProvider()
         ),
-        // NEW:  "{n} mappings" lens on /_data/*.json
+        // "{n} mappings" lens on /_data/*.json
         vscode.languages.registerCodeLensProvider(
             { language: 'json', scheme: 'file', pattern: '**/_data/**/*.json' },
             new DataFileMappingsLensProvider()
+        ),
+        // NEW: "/public/…" links inside JSON files
+        vscode.languages.registerDocumentLinkProvider(
+            { language: 'json', scheme: 'file', pattern: '**/_data/**/*.json' },
+            new JsonPublicAssetLinkProvider()
         )
     );
 
     //--------------------------------------------------
-    // 2. validation wiring  (_componentsMap.js)
+    // 2. diagnostics wiring
     //--------------------------------------------------
-    function refreshDiagnostics(doc) {
+    function refreshComponentsMapDiagnostics(doc) {
         if (path.basename(doc.uri.fsPath) !== '_componentsMap.js') { return; }
         placeholderDiagnostics.set(doc.uri, validateComponentsMap(doc));
     }
 
-    vscode.workspace.textDocuments.forEach(refreshDiagnostics);
+    function refreshPublicAssetDiagnostics(doc) {
+        if (doc.languageId !== 'json' || !doc.uri.fsPath.includes(`${path.sep}_data${path.sep}`)) { return; }
+        publicAssetDiagnostics.set(doc.uri, validateJsonPublicAssets(doc));
+    }
+
+    vscode.workspace.textDocuments.forEach(doc => {
+        refreshComponentsMapDiagnostics(doc);
+        refreshPublicAssetDiagnostics(doc);
+    });
 
     context.subscriptions.push(
         placeholderDiagnostics,
-        vscode.workspace.onDidOpenTextDocument(refreshDiagnostics),
-        vscode.workspace.onDidChangeTextDocument(e => refreshDiagnostics(e.document)),
-        vscode.workspace.onDidCloseTextDocument(doc => placeholderDiagnostics.delete(doc.uri))
+        publicAssetDiagnostics,
+
+        vscode.workspace.onDidOpenTextDocument(doc => {
+            refreshComponentsMapDiagnostics(doc);
+            refreshPublicAssetDiagnostics(doc);
+        }),
+        vscode.workspace.onDidChangeTextDocument(e => {
+            refreshComponentsMapDiagnostics(e.document);
+            refreshPublicAssetDiagnostics(e.document);
+        }),
+        vscode.workspace.onDidCloseTextDocument(doc => {
+            placeholderDiagnostics.delete(doc.uri);
+            publicAssetDiagnostics.delete(doc.uri);
+        })
     );
 
     //--------------------------------------------------
