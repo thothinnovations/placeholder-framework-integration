@@ -1,3 +1,16 @@
+### `1.0.0` ‑ 2025‑04‑23
+#### Changed
+- **`componentsMap.js`** – renamed from `_componentsMap.js` and adopted as the single source of truth. The extension now auto‑detects the new filename.
+- **Simplified mapping objects** – `dataFile` and `component` accept bare filenames (or sub‑paths). Paths are resolved relative to `/_data` and `/_components` respectively.
+- **Empty‑string `dataFile` sentinel** – use `dataFile: ""` to signify that a component has no external data. All navigation, CodeLens and diagnostics respect this.
+- **Updated navigation & refactoring tools** – definition providers, *{n usages}* CodeLens, safe renaming, and placeholder highlights work seamlessly with the new format.
+- **Rewritten validation rules** – diagnostics now target missing/invalid files based on the relative‑path rules and the new no‑data convention.
+
+#### Removed
+- Legacy support for `_componentsMap.js` with absolute paths and `noData` constant.
+
+---
+
 ### `0.5.0` ‑ 2025‑04‑19
 #### Added
 - **Clickable `/public` asset path links**  

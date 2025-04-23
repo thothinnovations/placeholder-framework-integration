@@ -1,12 +1,12 @@
 {
-  "name": "stoner-framework-integration",
-  "displayName": "stoner-framework Integration",
-  "description": "Advanced navigation, hints, diagnostics and refactoring for stoner-framework projects",
-  "version": "0.5.0",
+  "name": "placeholder-framework-integration",
+  "displayName": "placeholder-framework Integration",
+  "description": "Advanced navigation, hints, diagnostics and refactoring for placeholder-framework projects",
+  "version": "1.0.0",
   "publisher": "Thoth Inovacoes LTDA",
   "repository": {
     "type": "git",
-    "url": "https://github.com/thothinnovations/stoner-framework-integration.git"
+    "url": "https://github.com/thothinnovations/placeholder-framework-integration.git"
   },
   "engines": {
     "vscode": "^1.99.0"

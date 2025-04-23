@@ -91,42 +91,39 @@ class ComponentDefinitionProvider {
 // ====================================================
 class ComponentUsageProvider {
     async provideDefinition(document, position) {
-        // Only activate for _componentsMap.js
-        if (path.basename(document.uri.fsPath) !== '_componentsMap.js') return null;
+        // Only activate for componentsMap.js
+        if (path.basename(document.uri.fsPath) !== 'componentsMap.js') { return null; }
 
         // Detect placeholder line
-        const line = document.lineAt(position).text;
-        const placeholderMatch = line.match(/placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->/);
-        if (!placeholderMatch) return null;
-        const placeholderName = placeholderMatch[1];
+        const line             = document.lineAt(position).text;
+        const placeholderMatch = line.match(/placeholder:\s*["']<!--\s*([A-Za-z0-9_]+)\s*-->["']/);
+        if (!placeholderMatch) { return null; }
+        const placeholderName  = placeholderMatch[1];
 
-        // Get the directory containing _componentsMap.js
+        // Directory containing the map
         const componentsMapDir = path.dirname(document.uri.fsPath);
 
-        // Create search pattern relative to componentsMap directory
-        const relativePattern = new vscode.RelativePattern(
-            componentsMapDir,
-            '**/*.html'
-        );
-
-        const htmlFiles = await vscode.workspace.findFiles(relativePattern, '**/node_modules/**');
-        const locations = [];
+        // Search every *.html within that subtree
+        const relativePattern  = new vscode.RelativePattern(componentsMapDir, '**/*.html');
+        const htmlFiles        = await vscode.workspace.findFiles(relativePattern, '**/node_modules/**');
+        const locations        = [];
 
         for (const uri of htmlFiles) {
-            const doc = await vscode.workspace.openTextDocument(uri);
+            const doc  = await vscode.workspace.openTextDocument(uri);
             const text = doc.getText();
-            const regex = new RegExp(`<!--\\s*${placeholderName}\\s*-->`, 'g');
+            const rx   = new RegExp(`<!--\\s*${placeholderName}\\s*-->`, 'g');
 
-            let match;
-            while ((match = regex.exec(text)) !== null) {
-                const pos = doc.positionAt(match.index);
+            let m;
+            while ((m = rx.exec(text)) !== null) {
+                const pos = doc.positionAt(m.index);
                 locations.push(new vscode.Location(uri, pos));
             }
         }
 
-        return locations.length > 0 ? locations : null;
+        return locations.length ? locations : null;
     }
 }
+
 
 // ====================================================
 // Component Rename Provider (Cross-file renaming)
@@ -136,96 +133,92 @@ class ComponentRenameProvider {
     async provideRenameEdits(document, position, newName, token) {
         let oldName;
         let componentsMapPath;
-        let isJSFile = false;
+        let isJsMapFile = false;
 
-        // Determine context
+        //------------------------------------------------------------------
+        // 1. Determine the context (map vs. html)
+        //------------------------------------------------------------------
         if (document.languageId === 'javascript' &&
-            path.basename(document.uri.fsPath) === '_componentsMap.js') {
-            // Handle rename in componentsMap.js
+            path.basename(document.uri.fsPath) === 'componentsMap.js') {
+
             const line = document.lineAt(position).text;
-            const placeholderMatch = line.match(/placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->/);
-            if (!placeholderMatch) return null;
+            const match = line.match(/placeholder:\s*["']<!--\s*([A-Za-z0-9_]+)\s*-->["']/);
+            if (!match) { return null; }
 
-            const nameStart = line.indexOf(placeholderMatch[1]);
-            const nameEnd = nameStart + placeholderMatch[1].length;
-            if (position.character < nameStart || position.character > nameEnd) return null;
+            const nameStart = line.indexOf(match[1]);
+            const nameEnd   = nameStart + match[1].length;
+            if (position.character < nameStart || position.character > nameEnd) { return null; }
 
-            oldName = placeholderMatch[1];
+            oldName          = match[1];
             componentsMapPath = document.uri.fsPath;
-            isJSFile = true;
+            isJsMapFile      = true;
+
         } else if (document.languageId === 'html') {
-            // Handle rename in HTML file
+
             const line = document.lineAt(position).text;
-            const placeholderMatch = line.match(/<!--\s*([A-Za-z0-9_]+)\s*-->/);
-            if (!placeholderMatch) return null;
+            const match = line.match(/<!--\s*([A-Za-z0-9_]+)\s*-->/);
+            if (!match) { return null; }
 
-            const nameStart = line.indexOf(placeholderMatch[1]);
-            const nameEnd = nameStart + placeholderMatch[1].length;
-            if (position.character < nameStart || position.character > nameEnd) return null;
+            const nameStart = line.indexOf(match[1]);
+            const nameEnd   = nameStart + match[1].length;
+            if (position.character < nameStart || position.character > nameEnd) { return null; }
 
-            oldName = placeholderMatch[1];
+            oldName          = match[1];
             componentsMapPath = findComponentsMapPath(document.uri);
-            if (!componentsMapPath) return null;
-        } else {
-            return null;
-        }
+            if (!componentsMapPath) { return null; }
 
-        // Verify new name format
+        } else { return null; }
+
+        //------------------------------------------------------------------
+        // 2. Validate new name
+        //------------------------------------------------------------------
         if (!/^[A-Za-z0-9_]+$/.test(newName)) {
             vscode.window.showErrorMessage('Invalid component name. Use only letters, numbers and underscores.');
             return null;
         }
 
-        const edit = new vscode.WorkspaceEdit();
+        const edit            = new vscode.WorkspaceEdit();
         const componentsMapUri = vscode.Uri.file(componentsMapPath);
         const componentsMapDir = path.dirname(componentsMapPath);
 
-        // 1. Update componentsMap.js (fixed section)
-        if (isJSFile) {
-            // Rename in JS file directly
-            const range = document.getWordRangeAtPosition(position, /([A-Za-z0-9_]+)/);
-            if (range) {
-                edit.replace(document.uri, range, newName);
-            }
+        //------------------------------------------------------------------
+        // 3-a. Update map file itself
+        //------------------------------------------------------------------
+        if (isJsMapFile) {
+            const range = document.getWordRangeAtPosition(position, /[A-Za-z0-9_]+/);
+            if (range) { edit.replace(document.uri, range, newName); }
         } else {
-            // Find and update placeholder in componentsMap.js
-            const { componentsMap } = parseComponentsMap(componentsMapPath);
-            const entry = componentsMap.get(oldName);
-            if (!entry) return null;
-
-            // Read the actual componentsMap.js content
             const mapText = fs.readFileSync(componentsMapPath, 'utf8');
-            const placeholderRegex = new RegExp(`placeholder:\\s*'<!--\\s*${oldName}\\s*-->'`);
-            const match = placeholderRegex.exec(mapText);
+            const mapDoc  = await vscode.workspace.openTextDocument(componentsMapUri);
 
+            const rx      = new RegExp(`placeholder:\\s*["']<!--\\s*${oldName}\\s*-->["']`);
+            const match    = rx.exec(mapText);
             if (match) {
                 const start = match.index + match[0].indexOf(oldName);
-                const end = start + oldName.length;
-
-                // Get correct positions from componentsMap.js document
-                const mapDoc = await vscode.workspace.openTextDocument(componentsMapUri);
+                const end   = start + oldName.length;
                 const startPos = mapDoc.positionAt(start);
-                const endPos = mapDoc.positionAt(end);
-
+                const endPos   = mapDoc.positionAt(end);
                 edit.replace(componentsMapUri, new vscode.Range(startPos, endPos), newName);
             }
         }
 
-        // 2. Update all HTML files
+        //------------------------------------------------------------------
+        // 3-b. Update all HTML usages
+        //------------------------------------------------------------------
         const relativePattern = new vscode.RelativePattern(componentsMapDir, '**/*.html');
-        const htmlFiles = await vscode.workspace.findFiles(relativePattern, '**/node_modules/**');
+        const htmlFiles       = await vscode.workspace.findFiles(relativePattern, '**/node_modules/**');
 
         for (const uri of htmlFiles) {
-            const doc = await vscode.workspace.openTextDocument(uri);
+            const doc  = await vscode.workspace.openTextDocument(uri);
             const text = doc.getText();
-            const regex = new RegExp(`<!--\\s*${oldName}\\s*-->`, 'g');
+            const rx   = new RegExp(`<!--\\s*${oldName}\\s*-->`, 'g');
 
-            let match;
-            while ((match = regex.exec(text)) !== null) {
-                const start = match.index + match[0].indexOf(oldName);
-                const end = start + oldName.length;
+            let m;
+            while ((m = rx.exec(text)) !== null) {
+                const start = m.index + m[0].indexOf(oldName);
+                const end   = start + oldName.length;
                 const startPos = doc.positionAt(start);
-                const endPos = doc.positionAt(end);
+                const endPos   = doc.positionAt(end);
                 edit.replace(uri, new vscode.Range(startPos, endPos), newName);
             }
         }
@@ -244,55 +237,37 @@ class PlaceholderUsageHintsProvider {
         this.onDidChangeCodeLenses = this._onDidChange.event;
     }
 
-    // helper to resolve `dataFile: <expr>` to an absolute path
-    _resolveDataFile(expr, documentText, mapDir) {
-        // strip quotes / back‑ticks
-        expr = expr.trim();
-        const quote = expr[0];
-        if ((quote === '`' || quote === '\'' || quote === '"') && expr[expr.length - 1] === quote) {
-            expr = expr.slice(1, -1);
-        }
-
-        // fetch  dataDir  constant from the same file
-        const dataDirMatch = documentText.match(/const\s+dataDir\s*=\s*`([^`]+)`/);
-        const dataDir      = dataDirMatch ? dataDirMatch[1] : './_components/data';
-
-        // handle  ${dataDir}  template substitution
-        expr = expr.replace(/\$\{dataDir\}/g, dataDir);
-
-        return path.resolve(mapDir, expr);
-    }
-
     async provideCodeLenses(document, token) {
         const isHtml = document.languageId === 'html';
         const isMap  = document.languageId === 'javascript' &&
-                       path.basename(document.uri.fsPath) === '_componentsMap.js';
+                       path.basename(document.uri.fsPath) === 'componentsMap.js';
 
         if (!isHtml && !isMap) { return []; }
 
-        // 1. locate _componentsMap.js
+        // locate componentsMap.js
         const mapPath = isMap ? document.uri.fsPath : findComponentsMapPath(document.uri);
         if (!mapPath) { return []; }
         const mapDir  = path.dirname(mapPath);
 
-        // 2. gather every *.html
+        // gather all .html files once
         const htmlFiles = await vscode.workspace.findFiles(
             new vscode.RelativePattern(mapDir, '**/*.html'),
             '**/node_modules/**');
-        const htmlDocs  = await Promise.all(htmlFiles.map(uri => vscode.workspace.openTextDocument(uri)));
+        const htmlDocs  = await Promise.all(htmlFiles.map(u => vscode.workspace.openTextDocument(u)));
 
-        // 2b. Parse the map once (needed for go‑to buttons)
+        // parse map
         const { componentsMap, noDataValue } = parseComponentsMap(mapPath);
 
-        // 3. iterate through the current document
-        const usageCache  = new Map();
-        const codeLenses  = [];
-        const text        = document.getText();
+        const usageCache = new Map();
+        const codeLenses = [];
+        const text       = document.getText();
 
-        // a) "<n> usages"
+        //--------------------------------------------------
+        // a)  "{n usages}"  CodeLens
+        //--------------------------------------------------
         const placeholderRe = isHtml
             ? /<!--\s*([A-Za-z0-9_]+)\s*-->/g
-            : /placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->'/g;
+            : /placeholder:\s*["']<!--\s*([A-Za-z0-9_]+)\s*-->["']/g;
 
         let m;
         while ((m = placeholderRe.exec(text)) !== null) {
@@ -300,7 +275,7 @@ class PlaceholderUsageHintsProvider {
             const pos       = document.positionAt(m.index);
             const lensRange = new vscode.Range(pos.line, 0, pos.line, 0);
 
-            // cache counts so we only scan html once per placeholder
+            // count usages (cached per placeholder to avoid N² scans)
             let entry = usageCache.get(name);
             if (!entry) {
                 entry = { count: 0, locations: [] };
@@ -310,9 +285,8 @@ class PlaceholderUsageHintsProvider {
                     const hTxt = hDoc.getText();
                     let hm;
                     while ((hm = htmlRe.exec(hTxt)) !== null) {
-                        entry.count += 1;
-                        const hPos = hDoc.positionAt(hm.index);
-                        entry.locations.push(new vscode.Location(hDoc.uri, hPos));
+                        entry.count++;
+                        entry.locations.push(new vscode.Location(hDoc.uri, hDoc.positionAt(hm.index)));
                     }
                 }
                 usageCache.set(name, entry);
@@ -328,97 +302,75 @@ class PlaceholderUsageHintsProvider {
                 }
             ));
 
-            // ----------------------------------------------------------------
-            // NEW:   "component"   &   "dataFile"   (HTML only)
-            // ----------------------------------------------------------------
+            //--------------------------------------------------
+            // b)  "component" / "dataFile"  CodeLens  (HTML only)
+            //--------------------------------------------------
             if (isHtml && componentsMap.has(name)) {
-                const info = componentsMap.get(name);
+                const info       = componentsMap.get(name);
+                const compAbs    = path.resolve(mapDir, info.componentPath);
+                const dataAbs    = info.dataFile ? path.resolve(mapDir, info.dataFile) : '';
 
-                // component
-                const absComponent = path.resolve(mapDir, info.componentPath);
-                if (fs.existsSync(absComponent)) {
-                    codeLenses.push(new vscode.CodeLens(
-                        lensRange,
-                        {
-                            title: 'component',
-                            tooltip: 'Open component source',
-                            command: 'vscode.open',
-                            arguments: [ vscode.Uri.file(absComponent) ]
-                        }
-                    ));
+                if (fs.existsSync(compAbs)) {
+                    codeLenses.push(new vscode.CodeLens(lensRange, {
+                        title: 'component',
+                        tooltip: 'Open component source',
+                        command: 'vscode.open',
+                        arguments: [ vscode.Uri.file(compAbs) ]
+                    }));
                 }
-
-                // dataFile    (skip when mapped with noData)
-                if (info.dataFile !== noDataValue) {
-                    const absData = path.resolve(mapDir, info.dataFile);
-                    if (fs.existsSync(absData)) {
-                        codeLenses.push(new vscode.CodeLens(
-                            lensRange,
-                            {
-                                title: 'dataFile',
-                                tooltip: 'Open JSON data file',
-                                command: 'vscode.open',
-                                arguments: [ vscode.Uri.file(absData) ]
-                            }
-                        ));
-                    }
+                if (info.dataFile !== noDataValue && info.dataFile && fs.existsSync(dataAbs)) {
+                    codeLenses.push(new vscode.CodeLens(lensRange, {
+                        title: 'data',
+                        tooltip: 'Open component data file',
+                        command: 'vscode.open',
+                        arguments: [ vscode.Uri.file(dataAbs) ]
+                    }));
                 }
             }
         }
-        // b) "open:" CodeLens on both dataFile: <expr> and component: require(`…`)
+
+        //--------------------------------------------------
+        // c)  "open:" lenses inside map (dataFile / component)
+        //--------------------------------------------------
         if (isMap) {
-            /* ───────────── dataFile ───────────── */
-            const dataFileRe = /dataFile:\s*([^,]+),/g;        // raw expression
+            const mapText = document.getText();
+
+            /* dataFile */
+            const dataRe = /dataFile:\s*["']([^"']*)["']/g;
             let df;
-            while ((df = dataFileRe.exec(text)) !== null) {
-                const rawExpr = df[1].trim();
-                if (rawExpr === 'noData') { continue; }        // skip noData
-
-                const absPath = this._resolveDataFile(rawExpr, text, mapDir);
-                if (!fs.existsSync(absPath)) { continue; }
-
-                const dfPos     = document.positionAt(df.index);
-                const lensRange = new vscode.Range(dfPos.line, 0, dfPos.line, 0);
-
-                codeLenses.push(new vscode.CodeLens(
-                    lensRange,
-                    {
-                        title: 'open:',
-                        tooltip: 'Open mapped data file',
-                        command: 'vscode.open',
-                        arguments: [ vscode.Uri.file(absPath) ]
-                    }
-                ));
+            while ((df = dataRe.exec(mapText)) !== null) {
+                const raw   = df[1].trim();
+                if (raw === '') { continue; }
+                const abs   = path.resolve(mapDir, '_data', raw);
+                if (!fs.existsSync(abs)) { continue; }
+                const pos       = document.positionAt(df.index);
+                const lensRange = new vscode.Range(pos.line, 0, pos.line, 0);
+                codeLenses.push(new vscode.CodeLens(lensRange, {
+                    title: 'open:',
+                    tooltip: 'Open mapped data file',
+                    command: 'vscode.open',
+                    arguments: [ vscode.Uri.file(abs) ]
+                }));
             }
 
-            /* ───────────── component ───────────── */
-            const componentRe = /component:\s*require\(`([^`]+)`\)/g;
-            let cm;
-            while ((cm = componentRe.exec(text)) !== null) {
-                const relPath = cm[1].trim();
-                let absPath   = path.resolve(mapDir, relPath);
+            /* component */
+            const compRe = /component:\s*["']([^"']+)["']/g;
+            let cp;
+            while ((cp = compRe.exec(mapText)) !== null) {
+                const raw   = cp[1].trim();
+                const rel   = raw.startsWith('/') ? raw.slice(1) : raw;
+                let abs     = path.resolve(mapDir, '_components', rel);
+                if (!fs.existsSync(abs) && fs.existsSync(abs + '.js')) { abs += '.js'; }
+                if (!fs.existsSync(abs)) { continue; }
 
-                // tolerate omitted “.js”
-                if (!fs.existsSync(absPath)) {
-                    if (fs.existsSync(absPath + '.js')) {
-                        absPath += '.js';
-                    } else {
-                        continue;    // file truly missing
-                    }
-                }
-
-                const cmPos     = document.positionAt(cm.index);
-                const lensRange = new vscode.Range(cmPos.line, 0, cmPos.line, 0);
-
-                codeLenses.push(new vscode.CodeLens(
-                    lensRange,
-                    {
-                        title: 'open:',
-                        tooltip: 'Open component module',
-                        command: 'vscode.open',
-                        arguments: [ vscode.Uri.file(absPath) ]
-                    }
-                ));
+                const pos       = document.positionAt(cp.index);
+                const lensRange = new vscode.Range(pos.line, 0, pos.line, 0);
+                codeLenses.push(new vscode.CodeLens(lensRange, {
+                    title: 'open:',
+                    tooltip: 'Open component module',
+                    command: 'vscode.open',
+                    arguments: [ vscode.Uri.file(abs) ]
+                }));
             }
         }
 
@@ -664,66 +616,87 @@ class ComponentFileMappingsLensProvider {
 // Shared Utility Functions
 // ====================================================
 function findComponentsMapPath(currentFileUri) {
-    const currentPath = currentFileUri.fsPath;
-    let currentDir = path.dirname(currentPath);
+    const currentPath     = currentFileUri.fsPath;
+    let   currentDir      = path.dirname(currentPath);
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(currentFileUri);
-    if (!workspaceFolder) return null;
+    if (!workspaceFolder) { return null; }
     const root = workspaceFolder.uri.fsPath;
 
     while (currentDir.startsWith(root)) {
-        const candidate = path.join(currentDir, '_componentsMap.js');
-        if (fs.existsSync(candidate)) return candidate;
+        const candidate = path.join(currentDir, 'componentsMap.js');
+        if (fs.existsSync(candidate)) { return candidate; }
         currentDir = path.dirname(currentDir);
-        if (currentDir === path.dirname(currentDir)) break;
+        if (currentDir === path.dirname(currentDir)) { break; }
     }
     return null;
 }
 
+
+/**
+ * Parse the new componentsMap.js format.
+ *   [
+ *     { placeholder:"<!-- name -->", dataFile:"file.json", component:"file.js" },
+ *     …
+ *   ]
+ *
+ * Returns:
+ *   {
+ *     componentsMap : Map<string, { placeholderName, dataFile, componentPath }>,
+ *     noDataValue   : ''           // empty string signals “no data”
+ *   }
+ */
 function parseComponentsMap(componentsMapPath) {
     const text = fs.readFileSync(componentsMapPath, 'utf8');
 
-    // Extract dataDir and noData
-    const dataDir = (text.match(/const dataDir\s*=\s*`([^`]+)`/) || [])[1] || './_components/data';
-    const noData = (text.match(/const noData\s*=\s*`([^`]+)`/) || [])[1];
-    const noDataValue = noData ? path.resolve(path.dirname(componentsMapPath), noData) :
-                                 path.join(dataDir, '_empty.json');
+    // one mapping object (allow comments, trailing commas, etc.)
+    const rx = /{\s*placeholder:\s*["']<!--\s*([A-Za-z0-9_]+)\s*-->["']\s*,\s*dataFile:\s*["']([^"']*)["']\s*,\s*component:\s*["']([^"']+)["'][^}]*}/g;
 
-    // Regex to match one mapping object – robust to inline comments
-    //   { placeholder:'<!-- name -->', … dataFile: … , … component: require(`…`) … }
-    //
-    // Anything up to the next closing brace is allowed between the fields.
-    const componentRegex =
-        /{\s*[^}]*?placeholder:\s*'<!--\s*([A-Za-z0-9_]+)\s*-->'[^}]*?dataFile:\s*([^,]+),[^}]*?component:\s*require\(`([^`]+)`\)[^}]*?}/gs;
+    const entries     = [];
+    let   m;
+    while ((m = rx.exec(text)) !== null) {
+        const placeholderName = m[1].trim();
+        const dataFileRaw     = m[2].trim();              // may be ''
+        const componentRaw    = m[3].trim();              // 'file.js' or '/dir/file.js'
 
-    const entries = [];
-    let match;
+        const dataFileRel = dataFileRaw === ''
+            ? ''                                           // no-data
+            : path.join('_data', dataFileRaw);
 
-    while ((match = componentRegex.exec(text)) !== null) {
-        const placeholderName = match[1];
-        let dataFileExpr = match[2].trim();
-        const componentPath = match[3];
+        const compRel = componentRaw.startsWith('/')
+            ? path.join('_components', componentRaw.slice(1))
+            : path.join('_components', componentRaw);
 
-        // Resolve dataFile (handle template literals and variables)
-        let dataFile = dataFileExpr === 'noData' ? noDataValue
-            : dataFileExpr.replace(/\$\{dataDir\}/g, dataDir).replace(/^`|`$/g, '');
-
-        entries.push({ placeholderName, componentPath, dataFile });
+        entries.push({
+            placeholderName,
+            dataFile      : dataFileRel,
+            componentPath : compRel
+        });
     }
 
-    const componentsMap = new Map(entries.map(e => [e.placeholderName, e]));
-    return { componentsMap, noDataValue };
+    return {
+        componentsMap : new Map(entries.map(e => [ e.placeholderName, e ])),
+        noDataValue   : ''          // empty string is the sentinel
+    };
 }
 
+
+/**
+ * Locate the exact position of a placeholder mapping line.
+ */
 function findPlaceholderPositionInComponentsMap(componentsMapPath, placeholderName) {
-    const text = fs.readFileSync(componentsMapPath, 'utf8');
+    const text  = fs.readFileSync(componentsMapPath, 'utf8');
     const lines = text.split('\n');
+    const needle = `placeholder: "<!-- ${placeholderName} -->"`;
+
     for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes(`placeholder: '<!-- ${placeholderName} -->'`)) {
-            return new vscode.Position(i, lines[i].indexOf(`placeholder: '<!-- ${placeholderName} -->'`));
+        const col = lines[i].indexOf(needle);
+        if (col !== -1) {
+            return new vscode.Position(i, col);
         }
     }
     return null;
 }
+
 
 // Converts text offset to Position:
 function offsetToPosition(text, offset) {
@@ -757,157 +730,97 @@ function validateComponentsMap(doc) {
     const mapDir      = path.dirname(doc.uri.fsPath);
     const diagnostics = [];
 
-    // helper – gather every *.html file (sync, excluding node_modules)
-    function _gatherHtmlFilesSync(dir, list = []) {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (entry.name === 'node_modules') continue;
-            const full = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-                _gatherHtmlFilesSync(full, list);
-            } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.html')) {
-                list.push(full);
+    //----------------------------------------------------------------------
+    // 1. Bad syntax, duplicates & unused placeholders
+    //----------------------------------------------------------------------
+    const seen        = new Map();
+    const usedPlh     = new Set();
+
+    // gather usages across all HTML first
+    (function scanHtml(folder) {
+        const entries = fs.readdirSync(folder, { withFileTypes: true });
+        for (const e of entries) {
+            if (e.name === 'node_modules') { continue; }
+            const full = path.join(folder, e.name);
+            if (e.isDirectory()) { scanHtml(full); }
+            else if (e.isFile() && e.name.endsWith('.html')) {
+                const txt = fs.readFileSync(full, 'utf8');
+                const rx  = /<!--\s*([A-Za-z0-9_]+)\s*-->/g;
+                let m; while ((m = rx.exec(txt)) !== null) { usedPlh.add(m[1]); }
             }
         }
-        return list;
-    }
+    })(mapDir);
 
-    // build set of placeholder usages across all html pages
-    const usedPlaceholders = (() => {
-        const set = new Set();
-        const htmlFiles = _gatherHtmlFilesSync(mapDir);
-        const rx = /<!--\s*([A-Za-z0-9_]+)\s*-->/g;
-        for (const file of htmlFiles) {
-            const content = fs.readFileSync(file, 'utf8');
-            let m;
-            while ((m = rx.exec(content)) !== null) {
-                set.add(m[1]);
-            }
-        }
-        return set;
-    })();
-
-    // ------------------------------
-    // 1. placeholder syntax / dups / unused
-    // ------------------------------
-    const seenNames = new Map();
-    const placeholderRx = /placeholder:\s*(['"`])([^'"`]+)\1/g;
-
-    let pm;
+    const placeholderRx = /placeholder:\s*["']<!--\s*([A-Za-z0-9_]+)\s*-->["']/g;
+    let   pm;
     while ((pm = placeholderRx.exec(text)) !== null) {
-        const fullValue        = pm[2];
-        const nameOnly         = fullValue.replace(/<!--\s*|\s*-->/g, '').trim();
-        const valueStartOffset = pm.index + pm[0].indexOf(fullValue);
-        const valueLineRange   = doc.lineAt(doc.positionAt(valueStartOffset).line).range;
-
-        // syntax
-        if (!(fullValue.startsWith('<!-- ') && fullValue.endsWith(' -->'))) {
-            diagnostics.push(new vscode.Diagnostic(
-                valueLineRange,
-                'Placeholder must start with "<!-- " and end with " -->".',
-                vscode.DiagnosticSeverity.Error
-            ));
-        }
+        const name   = pm[1];
+        const line   = doc.positionAt(pm.index).line;
+        const range  = doc.lineAt(line).range;
 
         // duplicate
-        if (seenNames.has(nameOnly)) {
+        if (seen.has(name)) {
             diagnostics.push(new vscode.Diagnostic(
-                valueLineRange,
-                `Placeholder "${nameOnly}" is already in use.`,
-                vscode.DiagnosticSeverity.Error
-            ));
-        } else {
-            seenNames.set(nameOnly, true);
+                range,
+                `Placeholder "${name}" is already mapped.`,
+                vscode.DiagnosticSeverity.Error));
         }
+        seen.set(name, true);
 
         // unused
-        if (!usedPlaceholders.has(nameOnly)) {
+        if (!usedPlh.has(name)) {
             diagnostics.push(new vscode.Diagnostic(
-                valueLineRange,
-                `The placeholder "<!-- ${nameOnly} -->" is not being used in any .html page.`,
-                vscode.DiagnosticSeverity.Warning
-            ));
+                range,
+                `The placeholder "<!-- ${name} -->" is not used in any .html file.`,
+                vscode.DiagnosticSeverity.Warning));
         }
     }
 
-    // -------------------------------------------------
-    // 2. dataFile / component file existence checks
-    // -------------------------------------------------
-    const objRx =
-      /{\s*placeholder:\s*'<!--\s*[A-Za-z0-9_]+\s*-->',\s*dataFile:\s*([^,]+),\s*component:\s*require\(`([^`]+)`\)/gs;
-
-    // capture dataDir & noData for substitutions
-    const dataDir      = (text.match(/const\s+dataDir\s*=\s*`([^`]+)`/) || [])[1] || './_components/data';
-    const noDataIdent  = (text.match(/const\s+noData\s*=\s*`([^`]+)`/) || [])[1] || 'noData';
-
+    //----------------------------------------------------------------------
+    // 2. Check dataFile & component existence / validity
+    //----------------------------------------------------------------------
+    const objRx = /{\s*placeholder:\s*["']<!--\s*[A-Za-z0-9_]+\s*-->["']\s*,\s*dataFile:\s*["']([^"']*)["']\s*,\s*component:\s*["']([^"']+)["'][^}]*}/g;
     let om;
     while ((om = objRx.exec(text)) !== null) {
-        const dataExpr       = om[1].trim();
-        const componentRel   = om[2];
+        const dataRel = om[1].trim();           // '' allowed
+        const compRel = om[2].trim();
 
-        //------------------------------------------------
-        // locate positions
-        const objStart       = om.index;
-        const objFragment    = om[0];
+        // compute positions
+        const objStart  = om.index;
+        const dataPos   = doc.positionAt(objStart + om[0].indexOf(dataRel));
+        const compPos   = doc.positionAt(objStart + om[0].indexOf(compRel));
+        const dataRange = doc.lineAt(dataPos.line).range;
+        const compRange = doc.lineAt(compPos.line).range;
 
-        const dataOffset     = objStart + objFragment.indexOf(dataExpr);
-        const dataLineRange  = doc.lineAt(doc.positionAt(dataOffset).line).range;
-
-        const compOffset     = objStart + objFragment.indexOf(componentRel);
-        const compLineRange  = doc.lineAt(doc.positionAt(compOffset).line).range;
-
-        //------------------------------------------------
-        // dataFile validation
-        if (dataExpr !== 'noData' && !dataExpr.includes(noDataIdent)) {
-            let val = dataExpr;
-            const q  = val[0];
-            if ((q === '`' || q === '\'' || q === '"') && val[val.length - 1] === q) {
-                val = val.slice(1, -1);
-            }
-            val = val.replace(/\$\{dataDir\}/g, dataDir);
-            const absData = path.resolve(mapDir, val);
-
-            if (!fs.existsSync(absData)) {
+        // ----- dataFile
+        if (dataRel !== '') {
+            const dataAbs = path.resolve(mapDir, '_data', dataRel);
+            if (!fs.existsSync(dataAbs)) {
                 diagnostics.push(new vscode.Diagnostic(
-                    dataLineRange,
-                    `dataFile "${val}" not found.`,
-                    vscode.DiagnosticSeverity.Error
-                ));
+                    dataRange, `dataFile "${dataRel}" not found.`, vscode.DiagnosticSeverity.Error));
             } else {
-                // New: Check if JSON is valid
-                try {
-                    const content = fs.readFileSync(absData, 'utf8');
-                    JSON.parse(content);
-                } catch (e) {
-                    diagnostics.push(new vscode.Diagnostic(
-                        dataLineRange,
-                        `dataFile "${val}" contains invalid JSON.`,
-                        vscode.DiagnosticSeverity.Error
-                    ));
-                }
+                try { JSON.parse(fs.readFileSync(dataAbs, 'utf8')); }
+                catch { diagnostics.push(new vscode.Diagnostic(
+                    dataRange, `dataFile "${dataRel}" contains invalid JSON.`, vscode.DiagnosticSeverity.Error)); }
             }
         }
 
-        //------------------------------------------------
-        // component file validation
-        let compAbs = path.resolve(mapDir, componentRel);
-        const compExists = (fs.existsSync(compAbs) || fs.existsSync(compAbs + '.js'));
-        if (!compExists) {
+        // ----- component
+        const compAbs0 = compRel.startsWith('/')
+            ? path.resolve(mapDir, '_components', compRel.slice(1))
+            : path.resolve(mapDir, '_components', compRel);
+        let   compAbs  = compAbs0;
+
+        if (!fs.existsSync(compAbs) && fs.existsSync(compAbs + '.js')) { compAbs += '.js'; }
+
+        if (!fs.existsSync(compAbs)) {
             diagnostics.push(new vscode.Diagnostic(
-                compLineRange,
-                `Component file "${componentRel}" not found.`,
-                vscode.DiagnosticSeverity.Error
-            ));
+                compRange, `Component "${compRel}" not found.`, vscode.DiagnosticSeverity.Error));
         } else {
-            // New: Check if component exports a function
-            const actualPath = fs.existsSync(compAbs) ? compAbs : compAbs + '.js';
-            const content = fs.readFileSync(actualPath, 'utf8');
-            const exportsFunction = /module\.exports\s*=\s*(function\b|\([^)]*\)\s*=>)/.test(content);
-            if (!exportsFunction) {
+            const content = fs.readFileSync(compAbs, 'utf8');
+            if (!/module\.exports\s*=/.test(content)) {
                 diagnostics.push(new vscode.Diagnostic(
-                    compLineRange,
-                    `Component file "${componentRel}" does not export a valid function.`,
-                    vscode.DiagnosticSeverity.Error
-                ));
+                    compRange, `Component "${compRel}" does not export anything.`, vscode.DiagnosticSeverity.Error));
             }
         }
     }
@@ -1086,9 +999,9 @@ function activate(context) {
     // 1. providers & lenses
     //--------------------------------------------------
     context.subscriptions.push(
-        vscode.languages.registerDefinitionProvider('html',        new ComponentDefinitionProvider()),
-        vscode.languages.registerDefinitionProvider('javascript',  new ComponentUsageProvider()),
-        vscode.languages.registerDefinitionProvider('javascript',  new MapUsageProvider()),
+        vscode.languages.registerDefinitionProvider('html',       new ComponentDefinitionProvider()),
+        vscode.languages.registerDefinitionProvider('javascript', new ComponentUsageProvider()),
+        vscode.languages.registerDefinitionProvider('javascript', new MapUsageProvider()),
         vscode.languages.registerRenameProvider   ('html',        new ComponentRenameProvider()),
         vscode.languages.registerRenameProvider   ('javascript',  new ComponentRenameProvider()),
 
@@ -1097,7 +1010,7 @@ function activate(context) {
             new PlaceholderUsageHintsProvider()
         ),
         vscode.languages.registerCodeLensProvider(
-            { language: 'javascript', scheme: 'file', pattern: '**/_componentsMap.js' },
+            { language: 'javascript', scheme: 'file', pattern: `**/componentsMap.js` },
             new PlaceholderUsageHintsProvider()
         ),
         // "{n} mappings" lens on component .js files
@@ -1123,26 +1036,23 @@ function activate(context) {
     );
 
     //--------------------------------------------------
-    // 2. diagnostics wiring
+    // 2. diagnostics wiring  (map-filename updated)
     //--------------------------------------------------
-    function refreshComponentsMapDiagnostics(doc) {
-        if (path.basename(doc.uri.fsPath) !== '_componentsMap.js') { return; }
+    function refreshMapDiagnostics(doc) {
+        if (path.basename(doc.uri.fsPath) !== 'componentsMap.js') { return; }
         placeholderDiagnostics.set(doc.uri, validateComponentsMap(doc));
     }
 
     function refreshPublicAssetDiagnostics(doc) {
-        // JSON files under _data
         if (doc.languageId === 'json' && doc.uri.fsPath.includes(`${path.sep}_data${path.sep}`)) {
             publicAssetDiagnostics.set(doc.uri, validateJsonPublicAssets(doc));
-        }
-        // JavaScript component files under _components
-        else if (doc.languageId === 'javascript' && doc.uri.fsPath.includes(`${path.sep}_components${path.sep}`)) {
+        } else if (doc.languageId === 'javascript' && doc.uri.fsPath.includes(`${path.sep}_components${path.sep}`)) {
             publicAssetDiagnostics.set(doc.uri, validateJsPublicAssets(doc));
         }
     }
-    
+
     vscode.workspace.textDocuments.forEach(doc => {
-        refreshComponentsMapDiagnostics(doc);
+        refreshMapDiagnostics(doc);
         refreshPublicAssetDiagnostics(doc);
         refreshComponentMappingDiagnostics(doc);
     });
@@ -1153,12 +1063,12 @@ function activate(context) {
         componentMappingDiagnostics,
 
         vscode.workspace.onDidOpenTextDocument(doc => {
-            refreshComponentsMapDiagnostics(doc);
+            refreshMapDiagnostics(doc);
             refreshPublicAssetDiagnostics(doc);
             refreshComponentMappingDiagnostics(doc);
         }),
         vscode.workspace.onDidChangeTextDocument(e => {
-            refreshComponentsMapDiagnostics(e.document);
+            refreshMapDiagnostics(e.document);
             refreshPublicAssetDiagnostics(e.document);
             refreshComponentMappingDiagnostics(e.document);
         }),
@@ -1173,7 +1083,6 @@ function activate(context) {
     // 3. placeholder highlight init + events
     //--------------------------------------------------
     updatePlaceholderDecorations(vscode.window.activeTextEditor);
-
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor(updatePlaceholderDecorations),
         vscode.workspace.onDidChangeTextDocument(e => {
