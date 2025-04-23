@@ -1,8 +1,9 @@
-# `placeholder-framework-integration` VS Code Extension  
+# `placeholder-framework-integration` <br> VS Code Extension  
 
-Advanced navigation, hints, diagnostics and refactoring for `placeholder-framework` projects that use the `<!-- placeholder -->` pattern together with the  `componentsMap.js` file.
+Advanced navigation, hints, diagnostics and refactoring for [**placeholder-framework**](https://www.npmjs.com/package/placeholder-framework) projects that use the `<!-- placeholder -->` pattern together with the  `componentsMap.js` file.
 
 <br>
+
 
 ## 🛠️ Installation
 
